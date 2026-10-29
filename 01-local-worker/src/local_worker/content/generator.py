@@ -27,7 +27,18 @@ class ContentGenerator:
             or os.environ.get("LLM_API_KEY")
             or ""
         )
+
         self.base_url = str(self.config.get("base_url") or "https://api.openai.com/v1").rstrip("/")
+
+        # 默认不开启这个模式
+        self._use_health_mode: bool = False
+
+
+    def set_health_mode(self, enabled: bool) -> ContentGenerator:
+        """Dynamically enables or disables the health-specific LLM generator for the next operation."""
+        
+        self._use_health_mode = enabled
+        return self
 
     @property
     def has_llm_credentials(self) -> bool:
@@ -37,9 +48,50 @@ class ContentGenerator:
         """Generates (body_markdown, summary). Tries LLM if configured, otherwise falls back to editorial template."""
         if self.has_llm_credentials:
             try:
+                if self._use_health_mode:
+                    return self._call_health_llm(raw)
+                
                 return self._call_llm(raw)
             except (httpx.HTTPError, json.JSONDecodeError, KeyError, ValueError) as exc:
                 logger.warning("LLM generation failed, falling back to template: %s", exc)
+
+        return self._template_generate(raw)
+
+
+    def _call_health_llm(self, raw: RawItem) -> tuple[str, str]:
+        prompt = f"""
+        Translate the following high-sensitivity user concern into a professional, educational, search-engine-friendly article.
+        User Concern: {raw.body[:3000]}
+        Requirements:
+        - Use formal health vocabulary (e.g., 'tactile sensitivity', 'barrier optimization').
+        - Do not use explicit adult-network slang.
+        - Seamlessly integrate context for premium product selections (e.g., thin profiles, specialized materials).
+        """
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        
+        payload = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "messages": [
+                {"role": "user", "content": prompt},
+            ],
+            "response_format": {"type": "json_object"},
+        }
+
+        with httpx.Client(timeout=30.0) as client:
+            resp = client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            content = data["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            body = str(parsed.get("body_markdown") or "")
+            summary = str(parsed.get("summary") or truncate(body, 200))
+            if count_words(body) >= 200:
+                return body, summary
 
         return self._template_generate(raw)
 

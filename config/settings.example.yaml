@@ -66,3 +66,6 @@ compliance:
   require_expert_review: true
   allow_unlicensed_scraping: false
   default_content_rating: "general"
+
+llm:
+  enable: true

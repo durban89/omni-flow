@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterable
 from typing import Any
 
+from local_worker.content.generator import ContentGenerator
 from local_worker.content.text import (
-    body_to_markdown,
-    clean_summary,
+    body_to_markdown,  # Retained for fallback & non-LLM pipelines
+    clean_summary,     # Retained for fallback & non-LLM pipelines
     count_words,
     truncate,
 )
@@ -21,6 +23,8 @@ from local_worker.models import (
     slugify,
     utc_now,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -46,11 +50,16 @@ def normalize_raw_items(
     app = _mapping(settings.get("app"))
     pipeline = _mapping(settings.get("pipeline"))
     compliance = _mapping(settings.get("compliance"))
+    llm_settings = _mapping(settings.get("llm"))
 
     locale = str(app.get("default_locale") or "en")
     content_rating = str(compliance.get("default_content_rating") or "general")
     max_items = int(pipeline.get("max_items_per_run") or 20)
     auto_approve = bool(pipeline.get("auto_approve", False))
+
+    # Initialize generator and check credentials/explicit activation flags
+    generator = ContentGenerator(config=llm_settings)
+    enable_llm = bool(llm_settings.get("enable", False)) and generator.has_llm_credentials
 
     now = utc_now()
     seen_urls: set[str] = set()
@@ -67,13 +76,26 @@ def normalize_raw_items(
             continue
         seen_urls.add(url)
 
-        body = body_to_markdown(raw.body, raw.body_format)
-        if not body:
-            continue
-
         title = raw.title.strip()
-        summary = clean_summary(raw.summary, body)
         item_id = content_id(url, title)
+
+        existing_review = reviews.get(item_id) if reviews else None
+
+        # ===== FIX: Check if LLM processing is active AND has valid credentials =====
+        if enable_llm and not existing_review:
+            logger.info("[generator] Processing content via LLM generator for item_id: %s", item_id)
+            
+            is_health_category = raw.category.strip().lower() in {"health", "medical", "wellness"}
+            generator.set_health_mode(is_health_category)
+            
+            body, summary = generator.generate(raw)
+        else:
+            # Fallback path for unit tests or skipped items: Parse natively without template overruns
+            body = body_to_markdown(raw.body, raw.body_format)
+            if not body:
+                continue
+            summary = clean_summary(raw.summary, body)
+
         base_slug = slugify(title) or f"item-{item_id[:8]}"
         slug = unique_slug(base_slug, used_slugs)
         words = count_words(body)
@@ -84,7 +106,6 @@ def normalize_raw_items(
         published_at = None
         noindex = True
 
-        existing_review = reviews.get(item_id) if reviews else None
         if existing_review:
             status = str(existing_review.get("status") or "draft")
             reviewed = bool(existing_review.get("reviewed", False))
