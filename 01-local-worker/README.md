@@ -92,6 +92,32 @@ scraper:
       wait_selector: ".product-grid"
 ```
 
+### 📡 RSS 源
+
+| 名称 | URL |
+| :--- | :--- |
+|BBC Technology                 | https://feeds.bbci.co.uk/news/technology/rss.xml |
+|Hacker News (Best)             | https://hnrss.org/best                            |
+|TechCrunch                     | https://techcrunch.com/feed/                      |
+|The Verge                      | https://www.theverge.com/rss/index.xml            |
+
+### 📄 JSON API
+
+| 名称 | URL |
+| :--- | :--- |
+|JSONPlaceholder Posts                | https://jsonplaceholder.typicode.com/posts
+|Hacker News Top Stories              | https://hacker-news.firebaseio.com/v0/topstories.json
+|DummyJSON Products                   | https://dummyjson.com/products
+
+### 🌐 Dynamic Page (需要 Playwright)
+| 名称 | URL | wait_selector |
+| :--- | :--- | :---: |
+
+|Quotes to Scrape (JS)  | https://quotes.toscrape.com/js/         | .quote
+|Books to Scrape        | https://books.toscrape.com/             | .product_pod
+|SPA Quotes (scroll)    | https://quotes.toscrape.com/scroll      | .quote
+
+
 ## 测试与代码规范
 
 ```bash
