@@ -35,7 +35,7 @@ def build_sources(
         if not source_type:
             raise ConfigError(f"scraper source '{source_id}' requires type")
 
-        if source_type == "json_file":
+        if source_type in {"json_file", "json"}:
             adapters.append(JsonFileSource(source_id, entry, context))
         elif source_type == "rss":
             adapters.append(RssSource(source_id, entry, context))

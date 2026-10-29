@@ -17,23 +17,34 @@ class JsonFileSource:
 
     def fetch(self) -> list[RawItem]:
         path_value = optional_str(self.config.get("path"))
-        if not path_value:
-            raise ScrapeError(f"{self.source_id}: json_file source requires path")
+        url_value = optional_str(self.config.get("url"))
+        if not path_value and not url_value:
+            raise ScrapeError(f"{self.source_id}: json source requires path or url")
 
-        path = Path(path_value).expanduser()
-        if not path.is_absolute():
-            path = Path.cwd() / path
+        if url_value:
+            resp = self.context.client.get(url_value)
+            try:
+                data = resp.json()
+            except (json.JSONDecodeError, ValueError) as exc:
+                raise ScrapeError(f"{self.source_id}: invalid JSON from {url_value}: {exc}") from exc
+            source_desc = url_value
+        else:
+            assert path_value is not None
+            path = Path(path_value).expanduser()
+            if not path.is_absolute():
+                path = Path.cwd() / path
 
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except FileNotFoundError as exc:
-            raise ScrapeError(f"{self.source_id}: file not found: {path}") from exc
-        except json.JSONDecodeError as exc:
-            raise ScrapeError(f"{self.source_id}: invalid JSON in {path}: {exc}") from exc
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except FileNotFoundError as exc:
+                raise ScrapeError(f"{self.source_id}: file not found: {path}") from exc
+            except json.JSONDecodeError as exc:
+                raise ScrapeError(f"{self.source_id}: invalid JSON in {path}: {exc}") from exc
+            source_desc = str(path)
 
         entries = data.get("items") if isinstance(data, dict) else data
         if not isinstance(entries, list):
-            raise ScrapeError(f"{self.source_id}: expected an items array in {path}")
+            raise ScrapeError(f"{self.source_id}: expected an items array in {source_desc}")
 
         default_category = str(self.config.get("default_category") or "general")
         default_tags = string_list(self.config.get("default_tags"))

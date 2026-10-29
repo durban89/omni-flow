@@ -14,27 +14,40 @@ build:
   hugo_binary: "hugo"
 
 scraper:
-  user_agent: "ExampleCPSBot/0.1 (+https://example.com/bot)"
+  user_agent: "OmniFlowBot/0.1 (+https://example.com/bot)"
   request_timeout_seconds: 20
   request_delay_ms: 1500
   respect_robots_txt: true
-  continue_on_error: false
+  continue_on_error: true
   max_items_per_run: 200
   sources:
-    - id: curated
+    # 1. 本地 JSON 数据源 (Local JSON)
+    - id: curated_local
       type: json_file
       enabled: true
       path: "config/curated-input.example.json"
       default_category: "guides"
-      default_tags: ["curated"]
-      max_items: 20
-    - id: example_feed
+      default_tags: ["curated", "checklist"]
+      max_items: 10
+
+    # 2. 实时公开 RSS 订阅源 (Live Public RSS Feed)
+    - id: bbc_technology_rss
       type: rss
+      enabled: true
+      url: "https://feeds.bbci.co.uk/news/technology/rss.xml"
+      default_category: "technology"
+      default_tags: ["news", "rss"]
+      max_items: 5
+
+    # 3. 动态渲染页面抓取 (Playwright Dynamic JavaScript Page)
+    - id: dynamic_quotes_page
+      type: playwright
       enabled: false
-      url: "https://example.com/feed.xml"
-      default_category: "news"
-      default_tags: ["rss"]
-      max_items: 20
+      url: "https://quotes.toscrape.com/js/"
+      wait_selector: ".quote"
+      default_category: "quotes"
+      default_tags: ["dynamic", "javascript"]
+      timeout_ms: 20000
 
 content:
   model: "gpt-4o-mini"
