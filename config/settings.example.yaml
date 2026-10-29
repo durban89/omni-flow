@@ -1,0 +1,55 @@
+app:
+  site_name: "OmniFlow"
+  base_url: "https://example.com"
+  default_locale: "en"
+
+pipeline:
+  output_dir: "01-local-worker/build/public"
+  data_dir: "01-local-worker/build/data"
+  max_items_per_run: 50
+  require_human_review: true
+
+build:
+  site_dir: "03-distribution/site"
+  hugo_binary: "hugo"
+
+scraper:
+  user_agent: "ExampleCPSBot/0.1 (+https://example.com/bot)"
+  request_timeout_seconds: 20
+  request_delay_ms: 1500
+  respect_robots_txt: true
+  continue_on_error: false
+  max_items_per_run: 200
+  sources:
+    - id: curated
+      type: json_file
+      enabled: true
+      path: "config/curated-input.example.json"
+      default_category: "guides"
+      default_tags: ["curated"]
+      max_items: 20
+    - id: example_feed
+      type: rss
+      enabled: false
+      url: "https://example.com/feed.xml"
+      default_category: "news"
+      default_tags: ["rss"]
+      max_items: 20
+
+content:
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_words: 1200
+
+cloudflare:
+  pages_project: "example-matrix"
+  worker_name: "cps-edge-router"
+  kv_namespace_binding: "APP_KV"
+  r2_bucket_binding: "ASSETS_R2"
+
+compliance:
+  require_affiliate_disclosure: true
+  require_content_rating: true
+  require_expert_review: true
+  allow_unlicensed_scraping: false
+  default_content_rating: "general"

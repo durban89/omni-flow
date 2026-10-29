@@ -1,0 +1,17 @@
+{{ define "main" }}
+  <article>
+    <h1>{{ .Title }}</h1>
+    <p>{{ .Description }}</p>
+    {{ .Content }}
+    {{ with .Params.sources }}
+      <section>
+        <h2>Sources</h2>
+        <ul>
+          {{ range . }}
+            <li>{{ . }}</li>
+          {{ end }}
+        </ul>
+      </section>
+    {{ end }}
+  </article>
+{{ end }}

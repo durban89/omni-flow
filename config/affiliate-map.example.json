@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "updated_at": "2026-01-01T00:00:00Z",
+  "offers": [
+    {
+      "slug": "example-offer",
+      "destination": "https://example.com/affiliate?ref=REPLACE_ME",
+      "status": "paused",
+      "geo": ["US", "CA", "GB"],
+      "disclosure_required": true
+    }
+  ]
+}

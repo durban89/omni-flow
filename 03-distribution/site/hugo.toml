@@ -1,0 +1,16 @@
+baseURL = "https://example.com/"
+languageCode = "en-us"
+title = "OmniFlow"
+enableRobotsTXT = true
+disableKinds = ["taxonomy", "term"]
+
+[build]
+  writeStats = true
+
+[markup]
+  [markup.goldmark.renderer]
+    unsafe = false
+
+[params]
+  description = "Independent product research and buying guides."
+  affiliateDisclosure = "This site contains affiliate links. We may earn a commission at no extra cost to you."

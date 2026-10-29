@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{ site.LanguageCode }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ if .Title }}{{ .Title }} | {{ end }}{{ site.Title }}</title>
+    <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
+    {{ block "head" . }}{{ end }}
+  </head>
+  <body>
+    <header>
+      <a href="{{ "/" | relURL }}">{{ site.Title }}</a>
+    </header>
+    <main>
+      {{ block "main" . }}{{ end }}
+    </main>
+    <footer>
+      <p>{{ site.Params.affiliateDisclosure }}</p>
+    </footer>
+  </body>
+</html>

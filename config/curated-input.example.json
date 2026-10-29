@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "title": "How to Compare Product Specifications Before Buying",
+      "summary": "A practical checklist for comparing materials, dimensions, warranty terms, and total cost before choosing a product.",
+      "url": "https://example.com/guides/compare-product-specifications",
+      "body_markdown": "## Start with the use case\n\nWrite down what the product must do, where it will be used, and which constraints matter most. A shorter list of requirements makes it easier to ignore marketing claims that do not affect the decision.\n\n## Compare the specifications that change the experience\n\nMaterials, dimensions, weight, power requirements, and compatibility are usually more useful than headline numbers. Check whether the measurements use the same units and whether the listed values describe the product itself or its packaging.\n\n## Read the warranty and return terms\n\nA low price is less attractive if returns are expensive or the warranty excludes common failures. Compare the return window, who pays shipping, and whether the seller or manufacturer handles claims.\n\n## Calculate the total cost\n\nAdd accessories, replacement parts, delivery, and taxes. The cheapest listing is often not the cheapest ownership option.",
+      "body_format": "markdown",
+      "published_at": "2026-01-02T09:00:00Z",
+      "category": "guides",
+      "tags": ["buying-guide", "comparison"],
+      "keywords": ["product comparison", "specifications", "warranty"],
+      "publisher": "Example Editorial",
+      "license": "CC-BY-4.0",
+      "affiliate_slug": "example-offer"
+    },
+    {
+      "title": "Understanding Return and Warranty Policies",
+      "summary": "Key questions to ask before relying on a return window or warranty promise.",
+      "url": "https://example.com/guides/return-and-warranty-policies",
+      "body_markdown": "Return policies and warranties are not the same thing. A return window lets you send a product back after delivery, while a warranty covers specific defects for a stated period.\n\nCheck the start date for each policy. Some warranties begin on the purchase date, while others begin on delivery. Keep the receipt and the original packaging if the policy requires them.\n\nLook for exclusions. Normal wear, accidental damage, water damage, and unauthorized repairs are commonly excluded. The policy should also explain who pays for shipping and how long a repair or replacement takes.\n\nIf a listing is unclear, ask the seller for the written terms before ordering. A screenshot of a product page is not a substitute for the actual policy.",
+      "body_format": "markdown",
+      "published_at": "2026-01-03T09:00:00Z",
+      "category": "guides",
+      "tags": ["returns", "warranty"],
+      "keywords": ["return policy", "warranty terms", "buyer protection"],
+      "publisher": "Example Editorial",
+      "license": "CC-BY-4.0"
+    }
+  ]
+}
