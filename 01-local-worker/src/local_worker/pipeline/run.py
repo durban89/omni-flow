@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import subprocess
 import sys
 from collections import Counter
@@ -9,7 +10,9 @@ from pathlib import Path
 from typing import Any
 
 from local_worker.config import load_settings
+from local_worker.content.export_hugo import export_to_hugo
 from local_worker.content.normalize import normalize_raw_items
+from local_worker.content.review import ReviewService, ReviewStore
 from local_worker.content.validate import validate_content_items
 from local_worker.errors import ContentError, LocalWorkerError, ScrapeError
 from local_worker.models import (
@@ -20,21 +23,44 @@ from local_worker.models import (
     isoformat,
     utc_now,
 )
+from local_worker.pipeline.kv_sync import sync_affiliate_offers
 from local_worker.scraper import build_sources
 from local_worker.scraper.base import SourceContext
 from local_worker.scraper.http import HttpClient
 
+logger = logging.getLogger("local_worker.pipeline")
+
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 DEFAULT_SETTINGS = PROJECT_ROOT / "config/settings.yaml"
+
+
+def setup_logging(verbose: bool = False) -> None:
+    level = logging.DEBUG if verbose else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="local-worker")
     parser.add_argument(
         "stage",
-        choices=["scrape", "content", "build", "validate", "all"],
+        choices=["scrape", "content", "export", "build", "validate", "sync-kv", "review", "all"],
     )
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)
+    parser.add_argument("--auto-approve", action="store_true", help="Auto-approve eligible drafts")
+    parser.add_argument("--dry-run", action="store_true", help="Dry run for sync actions")
+    parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+
+    # Arguments for review action
+    parser.add_argument("--action", choices=["list", "approve", "reject"], default="list")
+    parser.add_argument("--target", type=str, default="", help="Slug or ID of item to review")
+    parser.add_argument("--reviewer", type=str, default="editorial", help="Reviewer identifier")
+    parser.add_argument("--notes", type=str, default="", help="Review notes or rejection reason")
+
     return parser
 
 
@@ -101,11 +127,11 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
                 items = source.fetch()
             except ScrapeError as exc:
                 if bool(scraper.get("continue_on_error", False)):
-                    print(f"[scrape] skip {source.source_id}: {exc}", file=sys.stderr)
+                    logger.warning("[scrape] skip %s: %s", source.source_id, exc)
                     continue
                 raise
             fetched_sources.append(source.source_id)
-            print(f"[scrape] {source.source_id}: {len(items)} item(s)")
+            logger.info("[scrape] %s: %d item(s)", source.source_id, len(items))
             raw_items.extend(items)
 
     max_items = int(
@@ -135,7 +161,7 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
             "items": [item.to_dict() for item in items],
         },
     )
-    print(f"[scrape] wrote {len(items)} raw item(s) to {path}")
+    logger.info("[scrape] wrote %d raw item(s) to %s", len(items), path)
     return path
 
 
@@ -151,7 +177,12 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         for entry in entries
         if isinstance(entry, dict)
     ]
-    items = normalize_raw_items(raw_items, settings)
+
+    # Load persistent review state if present
+    review_store = ReviewStore(data_dir / "review_state.json")
+    saved_reviews = review_store.load()
+
+    items = normalize_raw_items(raw_items, settings, reviews=saved_reviews)
 
     errors = validate_content_items(items)
     if errors:
@@ -189,8 +220,35 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         },
     )
 
-    print(f"[content] wrote {len(items)} content item(s) to {content_path}")
+    logger.info("[content] wrote %d content item(s) to %s", len(items), content_path)
+
+    # Automatically export to Hugo site
+    build_conf = _section(settings, "build")
+    site_dir = _resolve(root, str(build_conf.get("site_dir") or "03-distribution/site"))
+    if site_dir.exists():
+        export_to_hugo(items, site_dir)
+        logger.info("[content] synchronized content to Hugo site at %s", site_dir)
+
     return content_path
+
+
+def run_export(root: Path, settings: dict[str, Any]) -> list[Path]:
+    data_dir = _data_dir(root, settings)
+    content_path = data_dir / "content_items.json"
+    payload = _read_json(content_path)
+    entries = payload.get("items") or []
+
+    items = [
+        ContentItem.from_dict(entry)
+        for entry in entries
+        if isinstance(entry, dict)
+    ]
+
+    build_conf = _section(settings, "build")
+    site_dir = _resolve(root, str(build_conf.get("site_dir") or "03-distribution/site"))
+    written = export_to_hugo(items, site_dir)
+    logger.info("[export] exported %d post(s) to %s/content/posts/", len(written), site_dir)
+    return written
 
 
 def run_validate(root: Path, settings: dict[str, Any]) -> None:
@@ -219,7 +277,7 @@ def run_validate(root: Path, settings: dict[str, Any]) -> None:
         message = "\n".join(f"- {error}" for error in errors)
         raise ContentError(f"content validation failed:\n{message}")
 
-    print(f"[validate] {len(items)} content item(s) passed")
+    logger.info("[validate] %d content item(s) passed", len(items))
 
 
 def run_build(root: Path, settings: dict[str, Any]) -> None:
@@ -227,6 +285,12 @@ def run_build(root: Path, settings: dict[str, Any]) -> None:
     site_dir = _resolve(root, str(build.get("site_dir") or "03-distribution/site"))
     output_dir = _output_dir(root, settings)
     hugo = str(build.get("hugo_binary") or "hugo")
+
+    # Ensure export to Hugo is fresh
+    data_dir = _data_dir(root, settings)
+    content_path = data_dir / "content_items.json"
+    if content_path.exists():
+        run_export(root, settings)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -249,32 +313,122 @@ def run_build(root: Path, settings: dict[str, Any]) -> None:
     except subprocess.CalledProcessError as exc:
         raise ContentError(f"hugo build failed with exit code {exc.returncode}") from exc
 
-    print(f"[build] wrote static site to {output_dir}")
+    logger.info("[build] wrote static site to %s", output_dir)
 
 
-def run_all(root: Path, settings: dict[str, Any]) -> None:
+def run_kv_sync(root: Path, settings: dict[str, Any], dry_run: bool = False) -> dict[str, Any]:
+    result = sync_affiliate_offers(root, settings, dry_run=dry_run)
+    logger.info(
+        "[sync-kv] processed %d offer(s), bulk file: %s, synced: %s (method: %s)",
+        result["total_offers"],
+        result["bulk_file"],
+        result["synced"],
+        result["method"],
+    )
+    return result
+
+
+def run_review(
+    root: Path,
+    settings: dict[str, Any],
+    action: str,
+    target: str = "",
+    reviewer: str = "editorial",
+    notes: str = "",
+) -> None:
+    data_dir = _data_dir(root, settings)
+    service = ReviewService(data_dir)
+
+    if action == "list":
+        summary = service.list_summary()
+        print("\n=== Review Queue ===")
+        print(f"Pending ({len(summary['pending'])}):")
+        for item in summary["pending"]:
+            print(f"  - [{item['slug']}] {item['title']} ({item['words']} words)")
+        print(f"\nPublished ({len(summary['published'])}):")
+        for item in summary["published"]:
+            print(f"  - [{item['slug']}] {item['title']} (published at {item['published_at']})")
+        print()
+    elif action == "approve":
+        if not target:
+            raise ContentError("approve action requires --target <slug_or_id>")
+        approved = service.approve(target, reviewer=reviewer, notes=notes)
+        logger.info("[review] approved %s (status=%s, reviewed=%s)", approved.slug, approved.status, approved.reviewed)
+        # Re-export to update Hugo content
+        build_conf = _section(settings, "build")
+        site_dir = _resolve(root, str(build_conf.get("site_dir") or "03-distribution/site"))
+        if site_dir.exists():
+            run_export(root, settings)
+    elif action == "reject":
+        if not target:
+            raise ContentError("reject action requires --target <slug_or_id>")
+        rejected = service.reject(target, reviewer=reviewer, reason=notes)
+        logger.info("[review] rejected %s (status=%s)", rejected.slug, rejected.status)
+        build_conf = _section(settings, "build")
+        site_dir = _resolve(root, str(build_conf.get("site_dir") or "03-distribution/site"))
+        if site_dir.exists():
+            run_export(root, settings)
+
+
+def run_all(root: Path, settings: dict[str, Any], dry_run: bool = False) -> None:
     run_scrape(root, settings)
     run_content(root, settings)
     run_validate(root, settings)
-    run_build(root, settings)
+    run_export(root, settings)
+    try:
+        run_build(root, settings)
+    except ContentError as exc:
+        if "hugo binary not found" in str(exc):
+            logger.warning("[build] skipped: %s", exc)
+        else:
+            raise
+    run_kv_sync(root, settings, dry_run=dry_run)
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    setup_logging(args.verbose)
+
+    # Resolve settings path
+    settings_path = args.settings
+    if not settings_path.exists():
+        example_settings = PROJECT_ROOT / "config/settings.example.yaml"
+        if example_settings.exists():
+            settings_path = example_settings
+
     try:
-        settings = load_settings(args.settings)
+        settings = load_settings(settings_path)
+        if args.auto_approve:
+            if "pipeline" not in settings or not isinstance(settings["pipeline"], dict):
+                settings["pipeline"] = {}
+            settings["pipeline"]["auto_approve"] = True
+
         if args.stage == "scrape":
             run_scrape(PROJECT_ROOT, settings)
         elif args.stage == "content":
             run_content(PROJECT_ROOT, settings)
+        elif args.stage == "export":
+            run_export(PROJECT_ROOT, settings)
         elif args.stage == "validate":
             run_validate(PROJECT_ROOT, settings)
         elif args.stage == "build":
             run_build(PROJECT_ROOT, settings)
+        elif args.stage == "sync-kv":
+            run_kv_sync(PROJECT_ROOT, settings, dry_run=args.dry_run)
+        elif args.stage == "review":
+            run_review(
+                PROJECT_ROOT,
+                settings,
+                action=args.action,
+                target=args.target,
+                reviewer=args.reviewer,
+                notes=args.notes,
+            )
         else:
-            run_all(PROJECT_ROOT, settings)
+            run_all(PROJECT_ROOT, settings, dry_run=args.dry_run)
     except LocalWorkerError as exc:
-        raise SystemExit(f"error: {exc}") from exc
+        logger.error("%s", exc)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

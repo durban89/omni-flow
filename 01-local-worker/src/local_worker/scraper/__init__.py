@@ -5,6 +5,7 @@ from typing import Any
 from local_worker.errors import ConfigError
 from local_worker.scraper.base import SourceAdapter, SourceContext
 from local_worker.scraper.json_file import JsonFileSource
+from local_worker.scraper.playwright_source import PlaywrightSource
 from local_worker.scraper.rss import RssSource
 
 
@@ -38,10 +39,12 @@ def build_sources(
             adapters.append(JsonFileSource(source_id, entry, context))
         elif source_type == "rss":
             adapters.append(RssSource(source_id, entry, context))
+        elif source_type in {"playwright", "browser"}:
+            adapters.append(PlaywrightSource(source_id, entry, context))
         else:
             raise ConfigError(f"unsupported scraper source type: {source_type}")
 
     return adapters
 
 
-__all__ = ["SourceAdapter", "SourceContext", "build_sources"]
+__all__ = ["PlaywrightSource", "SourceAdapter", "SourceContext", "build_sources"]

@@ -17,6 +17,7 @@ from local_worker.models import (
     SourceRef,
     canonical_url,
     content_id,
+    parse_datetime,
     slugify,
     utc_now,
 )
@@ -39,6 +40,8 @@ def unique_slug(base: str, used: set[str]) -> str:
 def normalize_raw_items(
     items: Iterable[RawItem],
     settings: dict[str, Any],
+    *,
+    reviews: dict[str, dict[str, Any]] | None = None,
 ) -> list[ContentItem]:
     app = _mapping(settings.get("app"))
     pipeline = _mapping(settings.get("pipeline"))
@@ -47,6 +50,7 @@ def normalize_raw_items(
     locale = str(app.get("default_locale") or "en")
     content_rating = str(compliance.get("default_content_rating") or "general")
     max_items = int(pipeline.get("max_items_per_run") or 20)
+    auto_approve = bool(pipeline.get("auto_approve", False))
 
     now = utc_now()
     seen_urls: set[str] = set()
@@ -72,6 +76,25 @@ def normalize_raw_items(
         item_id = content_id(url, title)
         base_slug = slugify(title) or f"item-{item_id[:8]}"
         slug = unique_slug(base_slug, used_slugs)
+        words = count_words(body)
+
+        # Default draft state
+        status = "draft"
+        reviewed = False
+        published_at = None
+        noindex = True
+
+        existing_review = reviews.get(item_id) if reviews else None
+        if existing_review:
+            status = str(existing_review.get("status") or "draft")
+            reviewed = bool(existing_review.get("reviewed", False))
+            published_at = parse_datetime(existing_review.get("published_at"))
+            noindex = status != "published"
+        elif auto_approve and words >= 300:
+            status = "published"
+            reviewed = True
+            published_at = now
+            noindex = False
 
         item = ContentItem(
             id=item_id,
@@ -79,7 +102,7 @@ def normalize_raw_items(
             title=title,
             summary=summary,
             body_markdown=body,
-            word_count=count_words(body),
+            word_count=words,
             locale=locale,
             category=raw.category.strip() or "general",
             tags=raw.tags,
@@ -95,14 +118,15 @@ def normalize_raw_items(
                     retrieved_at=raw.retrieved_at,
                 ),
             ),
-            status="draft",
-            reviewed=False,
+            status=status,
+            reviewed=reviewed,
+            published_at=published_at,
             updated_at=now,
             seo=SEO(
                 title=title,
                 description=truncate(summary, 160),
                 canonical=None,
-                noindex=True,
+                noindex=noindex,
             ),
         )
         item.ensure_valid()

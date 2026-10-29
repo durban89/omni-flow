@@ -191,12 +191,13 @@ config:<name> -> 运行时配置
 - [x] 三层目录骨架
 - [x] 配置样例与密钥模板
 - [x] Worker 存活检查与 KV 跳转骨架
-- [x] Hugo 最小站点骨架
-- [x] scraper 适配器（`json_file` / `rss`）
-- [x] 内容规范化、最终输出契约与校验
-- [ ] LLM 内容生成与人工审核队列
-- [ ] KV 同步脚本
-- [ ] Pages / Worker CI 部署
+- [x] Hugo 最小站点骨架与内容文章渲染模板
+- [x] scraper 适配器（`json_file` / `rss` / `playwright` 动态渲染）
+- [x] 富文本 HTML 转 Markdown、内容规范化与契约校验
+- [x] Hugo Markdown 文章与 Data JSON 自动化导出
+- [x] LLM 内容生成器与人工审核发布工作流（Review Queue）
+- [x] Cloudflare KV 联盟 Offer 批量同步脚本
+- [ ] Pages / Worker CI 自动化部署
 - [ ] 披露组件、分析埋点
 
 ## 11. 开源许可 (License)

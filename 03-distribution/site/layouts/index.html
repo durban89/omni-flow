@@ -1,4 +1,19 @@
 {{ define "main" }}
   <h1>{{ site.Title }}</h1>
   {{ .Content }}
+
+  <section class="posts-list">
+    <h2>Articles & Guides</h2>
+    <ul>
+      {{ range site.RegularPages }}
+        <li>
+          <a href="{{ .RelPermalink }}">{{ .Title }}</a>
+          {{ with .Date }}<time>{{ .Format "2006-01-02" }}</time>{{ end }}
+          <p>{{ .Description }}</p>
+        </li>
+      {{ else }}
+        <p>No published articles yet.</p>
+      {{ end }}
+    </ul>
+  </section>
 {{ end }}
