@@ -1,0 +1,41 @@
+{
+  "okamoto-001-poly": {
+    "product_name": "冈本001聚氨酯超薄安全套",
+    "brand": "Okamoto",
+    "niche": "adult-products",
+    "masked_path": "/out/okamoto-001",
+    "target_platform": "taobao_alliance",
+    "real_affiliate_url": "https://taobao.com",
+    "meta_metrics": {
+      "base_commission_rate": 0.15,
+      "estimated_aov": 120.00,
+      "is_active": true
+    }
+  },
+  "jissbon-amour-delay": {
+    "product_name": "杰士邦零感持久延时避孕套",
+    "brand": "Jissbon",
+    "niche": "adult-products",
+    "masked_path": "/out/jissbon-delay",
+    "target_platform": "jd_alliance",
+    "real_affiliate_url": "https://jd.com",
+    "meta_metrics": {
+      "base_commission_rate": 0.20,
+      "estimated_aov": 95.00,
+      "is_active": true
+    }
+  },
+  "skyn-original-nonlatex": {
+    "product_name": "SKYN极肤系列非乳胶聚异戊二烯安全套",
+    "brand": "SKYN",
+    "niche": "adult-products",
+    "masked_path": "/out/skyn-original",
+    "target_platform": "crakrevenue_global",
+    "real_affiliate_url": "https://crakrevenue.com",
+    "meta_metrics": {
+      "base_commission_rate": 0.35,
+      "estimated_aov": 45.00,
+      "is_active": true
+    }
+  }
+}

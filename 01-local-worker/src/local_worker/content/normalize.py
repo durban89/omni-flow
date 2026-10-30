@@ -7,7 +7,7 @@ from typing import Any
 from local_worker.content.generator import ContentGenerator
 from local_worker.content.text import (
     body_to_markdown,  # Retained for fallback & non-LLM pipelines
-    clean_summary,     # Retained for fallback & non-LLM pipelines
+    clean_summary,  # Retained for fallback & non-LLM pipelines
     count_words,
     truncate,
 )
@@ -44,6 +44,7 @@ def unique_slug(base: str, used: set[str]) -> str:
 def normalize_raw_items(
     items: Iterable[RawItem],
     settings: dict[str, Any],
+    master_db_path: str = "",
     *,
     reviews: dict[str, dict[str, Any]] | None = None,
 ) -> list[ContentItem]:
@@ -59,6 +60,7 @@ def normalize_raw_items(
 
     # Initialize generator and check credentials/explicit activation flags
     generator = ContentGenerator(config=llm_settings)
+    generator = generator.set_master_db_path(master_db_path)
     enable_llm = bool(llm_settings.get("enable", False)) and generator.has_llm_credentials
 
     now = utc_now()
@@ -80,7 +82,7 @@ def normalize_raw_items(
         item_id = content_id(url, title)
 
         existing_review = reviews.get(item_id) if reviews else None
-
+            
         # ===== FIX: Check if LLM processing is active AND has valid credentials =====
         if enable_llm and not existing_review:
             logger.info("[generator] Processing content via LLM generator for item_id: %s", item_id)
@@ -105,6 +107,9 @@ def normalize_raw_items(
         reviewed = False
         published_at = None
         noindex = True
+
+        logger.info("[generator] Processing body: %s", body)
+        logger.info("[generator] Processing summary: %s", summary)
 
         if existing_review:
             status = str(existing_review.get("status") or "draft")

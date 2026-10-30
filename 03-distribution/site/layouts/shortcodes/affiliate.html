@@ -1,0 +1,23 @@
+<!-- hugo-blog/layouts/shortcodes/affiliate.html -->
+
+<!-- 1. 获取文章中传入的 name 参数，例如 "okamoto-001-poly" -->
+{{ $key := .Get "name" }}
+
+<!-- 2. 让 Hugo 原生直接去 Site.Data 目录下的 affiliate-map.json 文件中，根据 key 精准查找数据 -->
+{{ $item := index .Site.Data "affiliate-map" $key }}
+
+<!-- 3. 如果找到了对应的商品数据，渲染出漂亮的 Tailwind CSS 按钮 -->
+{{ if $item }}
+<div class="affiliate-box my-6 p-4 border border-dashed border-rose-200 rounded-xl bg-rose-50/30 text-center">
+    <p class="text-sm text-gray-500 mb-2">针对本文提及的健康痛点，专家推荐以下材质解决方案：</p>
+    <a href="{{ $item.url }}" 
+       target="_blank" 
+       rel="nofollow" 
+       class="inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-rose-600 hover:bg-rose-700 transition duration-150 ease-in-out shadow-sm">
+       获取 {{ $item.product }}
+    </a>
+</div>
+{{ else }}
+<!-- 4. 安全防御边界：如果本地 JSON 还没有同步这个关键词，打印一个隐蔽的控制台警告，前端不崩溃 -->
+{{ warnf "OmniFlow 警告: 在 affiliate-map.json 中未找到关键词 [%s] 的配置" $key }}
+{{ end }}

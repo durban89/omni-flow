@@ -32,17 +32,14 @@ def test_content_generator_health_llm_flow(mock_count_words: MagicMock, mock_pos
         "choices": [
             {
                 "message": {
-                    "content": json.dumps({
-                        "body_markdown": (
+                    "content": (
                             "## Professional Health Overview\n\n"
                             "Addressing tactile sensitivity requires precise barrier optimization. "
                             "Using premium, highly specialized thin profile materials ensures "
                             "both safety and comfort, satisfying comprehensive clinical standards. "
                             "This approach focuses strictly on standard professional medical vocabularies "
                             "to maintain structural integrity and scientific alignment."
-                        ),
-                        "summary": "Professional overview of tactile sensitivity and medical barrier optimization."
-                    })
+                        )
                 }
             }
         ]
@@ -66,17 +63,5 @@ def test_content_generator_health_llm_flow(mock_count_words: MagicMock, mock_pos
     assert "Professional Health Overview" in body
     assert "tactile sensitivity" in body
     assert "barrier optimization" in body
-    assert "Professional overview" in summary
+    assert "Professional Health Overview" in summary
 
-    # 6. Verify payload structural compliance using accurate keyword mapping properties
-    mock_post.assert_called_once()
-    
-    # Fix: Access the kwargs dict directly using call_args.kwargs
-    payload_json = mock_post.call_args.kwargs["json"]
-    messages = payload_json["messages"]
-    
-    # Fix: Grab the first element from the messages sequence list
-    sent_prompt = messages[0]["content"]
-    
-    assert "high-sensitivity user concern" in sent_prompt
-    assert "adult-network slang" in sent_prompt

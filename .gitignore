@@ -18,6 +18,7 @@ node_modules/
 
 config/settings.yaml
 config/affiliate-map.json
+config/master-affiliate-db.json
 
 .DS_Store
 
@@ -27,3 +28,4 @@ config/affiliate-map.json
 03-distribution/site/content/posts/
 03-distribution/site/data/content_items.json
 03-distribution/site/hugo_stats.json
+03-distribution/site/data/affiliate-map.json
