@@ -29,7 +29,7 @@ def test_validate_offer() -> None:
 def test_sync_affiliate_offers_generates_bulk_json(tmp_path: Path) -> None:
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
-    map_file = config_dir / "affiliate-map.json"
+    map_file = config_dir / "affiliate-offers.json"
     map_file.write_text(
         json.dumps({
             "offers": [
@@ -64,5 +64,5 @@ def test_sync_affiliate_offers_generates_bulk_json(tmp_path: Path) -> None:
 
 def test_sync_affiliate_offers_missing_file_raises(tmp_path: Path) -> None:
     settings = {"pipeline": {"data_dir": str(tmp_path / "data")}}
-    with pytest.raises(ConfigError, match="affiliate map file not found"):
+    with pytest.raises(ConfigError, match="affiliate offers file not found"):
         sync_affiliate_offers(tmp_path, settings)

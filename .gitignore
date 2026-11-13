@@ -17,6 +17,7 @@ node_modules/
 03-distribution/site/resources/
 
 config/settings.yaml
+config/affiliate-offers.json
 config/affiliate-map.json
 config/master-affiliate-db.json
 

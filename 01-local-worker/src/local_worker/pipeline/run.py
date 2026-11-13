@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import os
-import shutil
 import subprocess
 import sys
 from collections import Counter
@@ -25,6 +23,7 @@ from local_worker.models import (
     isoformat,
     utc_now,
 )
+from local_worker.pipeline.affiliate_sync import sync_from_master_db
 from local_worker.pipeline.kv_sync import sync_affiliate_offers
 from local_worker.scraper import build_sources
 from local_worker.scraper.base import SourceContext
@@ -51,9 +50,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "stage",
         choices=[
-        "sync-affilicate",
-        "scrape", "content", 
-        "export", "build", "validate", "sync-kv", "review", "all"],
+            "sync-affiliate",
+            "sync-affilicate",  # backwards-compatible alias
+            "scrape",
+            "content",
+            "export",
+            "build",
+            "validate",
+            "sync-kv",
+            "review",
+            "all",
+        ],
     )
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)
     parser.add_argument("--auto-approve", action="store_true", help="Auto-approve eligible drafts")
@@ -112,64 +119,22 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
 
 
 
-def run_map_affiliate(root: Path, settings: dict[str, Any]):
-    master_db_path = root / "config/master-affiliate-db.json"
-    hugo_data_path = root / "config/affiliate-map.json"
-
-    # 🔧 修复 Bug: 原代码中误用了 self.master_db_path
-    if not os.path.exists(master_db_path):
-        print(f"❌ 错误: 找不到主数据库文件 [{master_db_path}]，请先创建它。")
-        return
-
-    with open(master_db_path, "r", encoding="utf-8") as f:
-        master_db = json.load(f)
-
-    hugo_front_map = {}
-
-    for key, entity in master_db.items():
-        # 过滤掉处于未激活（下架）状态的商品
-        if not entity.get("meta_metrics", {}).get("is_active", True):
-            print(f"⚠️ 商品 [{key}] 已标记为下架，跳过同步。")
-            continue
-            
-        masked_path = entity.get("masked_path")
-        real_url = entity.get("real_url") or entity.get("real_affiliate_url")
-        product_name = entity.get("product_name")
-        
-        # 安全校验：确保核心路由字段不为空
-        if not masked_path or not real_url or not product_name:
-            print(f"⚠️ 商品 [{key}] 缺少核心配置字段，跳过。")
-            continue
-
-        # 容器 A (前端公开层): 只保留商品名和伪装路径，彻底剥离真实推广链接
-        hugo_front_map[key] = {
-            "product": product_name,
-            "url": masked_path
-        }
-
-    # 1. 确保本地 config 目录存在并写入
-    os.makedirs(os.path.dirname(hugo_data_path), exist_ok=True)
-    with open(hugo_data_path, "w", encoding="utf-8") as f:
-        json.dump(hugo_front_map, f, ensure_ascii=False, indent=2)
-    print(f"✓ 成功刷新 Hugo 前端媒体映射表 -> [{hugo_data_path}] (敏感URL已完全剥离)")
-
-    # Automatically export to Hugo site
-    build_conf = _section(settings, "build")
-    site_dir = _resolve(root, str(build_conf.get("site_dir") or "03-distribution/site"))
-    
-    if site_dir.exists():
-        # ====== 🚀 核心修改：同步到 Hugo 站点的 data 文件夹 ======
-        hugo_data_dir = site_dir / "data"
-        # 如果 data 文件夹不存在则创建（parents=True 相当于 mkdir -p）
-        hugo_data_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 目标文件路径
-        target_json_path = hugo_data_dir / hugo_data_path.name # 即 .../site/data/affiliate-map.json
-        
-        # 复制文件（shutil.copy2 会自动覆盖已存在的同名文件）
-        shutil.copy2(hugo_data_path, target_json_path)
-        print(f"✓ 已同步映射表至 Hugo 站点数据目录 -> [{target_json_path}]")
-        # ========================================================
+def run_map_affiliate(
+    root: Path,
+    settings: dict[str, Any],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Generate Hugo public map + KV offers from master-affiliate-db."""
+    result = sync_from_master_db(root, settings, dry_run=dry_run)
+    logger.info(
+        "[sync-affiliate] master=%s offers=%d hugo=%d written=%s",
+        result["master_db"],
+        result["offer_count"],
+        result["hugo_entry_count"],
+        result["written"],
+    )
+    return result
 
 
 def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
@@ -453,6 +418,10 @@ def run_all(root: Path, settings: dict[str, Any], dry_run: bool = False) -> None
             logger.warning("[build] skipped: %s", exc)
         else:
             raise
+    try:
+        run_map_affiliate(root, settings, dry_run=dry_run)
+    except LocalWorkerError as exc:
+        logger.warning("[sync-affiliate] skipped: %s", exc)
     run_kv_sync(root, settings, dry_run=dry_run)
 
 
@@ -474,8 +443,8 @@ def main() -> None:
                 settings["pipeline"] = {}
             settings["pipeline"]["auto_approve"] = True
 
-        if args.stage == "sync-affilicate":
-            run_map_affiliate(PROJECT_ROOT, settings)
+        if args.stage in {"sync-affiliate", "sync-affilicate"}:
+            run_map_affiliate(PROJECT_ROOT, settings, dry_run=args.dry_run)
         elif args.stage == "scrape":
             run_scrape(PROJECT_ROOT, settings)
         elif args.stage == "content":

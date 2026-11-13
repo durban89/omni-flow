@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from local_worker.errors import ConfigError
 from local_worker.models import SLUG_PATTERN
+from local_worker.pipeline.affiliate_sync import resolve_offers_path
 
 logger = logging.getLogger("local_worker.kv_sync")
 
@@ -52,13 +53,7 @@ def sync_affiliate_offers(
     data_dir = root / data_dir_name if not Path(data_dir_name).is_absolute() else Path(data_dir_name)
     data_dir.mkdir(parents=True, exist_ok=True)
 
-    affiliate_path = root / "config/affiliate-map.json"
-    if not affiliate_path.exists():
-        example_path = root / "config/affiliate-map.example.json"
-        if example_path.exists():
-            affiliate_path = example_path
-        else:
-            raise ConfigError(f"affiliate map file not found: {affiliate_path}")
+    affiliate_path = resolve_offers_path(root, allow_example=True)
 
     try:
         raw_data = json.loads(affiliate_path.read_text(encoding="utf-8"))
@@ -67,7 +62,10 @@ def sync_affiliate_offers(
 
     offers = raw_data.get("offers") if isinstance(raw_data, dict) else raw_data
     if not isinstance(offers, list):
-        raise ConfigError("affiliate map must contain an offers list")
+        raise ConfigError(
+            "affiliate offers file must contain an offers list "
+            f"(got {affiliate_path}); run sync-affiliate from master-affiliate-db"
+        )
 
     kv_pairs: list[dict[str, str]] = []
     all_errors: list[str] = []

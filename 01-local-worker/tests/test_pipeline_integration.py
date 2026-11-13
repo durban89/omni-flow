@@ -96,7 +96,7 @@ def test_full_pipeline_with_export_review_and_kv_sync(tmp_path: Path) -> None:
 
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
-    (config_dir / "affiliate-map.json").write_text(
+    (config_dir / "affiliate-offers.json").write_text(
         json.dumps({
             "offers": [
                 {

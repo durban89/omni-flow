@@ -68,7 +68,8 @@
 ├── config/
 │   ├── settings.example.yaml
 │   ├── curated-input.example.json
-│   └── affiliate-map.example.json
+│   ├── master-affiliate-db.example.json
+│   └── affiliate-offers.example.json
 ├── 01-local-worker/
 │   ├── pyproject.toml
 │   ├── src/local_worker/
@@ -120,9 +121,11 @@
 ```bash
 cp .env.example .env
 cp config/settings.example.yaml config/settings.yaml
-cp config/affiliate-map.example.json config/affiliate-map.json
+cp config/master-affiliate-db.example.json config/master-affiliate-db.json
 
 ./scripts/bootstrap.sh
+# Generate Hugo public map + KV offers from master DB
+python -m local_worker.pipeline.run sync-affiliate
 make check
 ```
 
@@ -163,7 +166,9 @@ make check
 ## 8. 配置与密钥
 
 - `config/settings.yaml`：非敏感运行配置，提交前确认不含密钥。
-- `config/affiliate-map.json`：联盟 offer 映射，由 Layer 1 同步到 KV。
+- `config/master-affiliate-db.json`：联盟主库（含真实推广 URL），本地/私密，不提交。
+- `config/affiliate-offers.json`：由 `sync-affiliate` 从主库生成，供 KV 同步（含 destination）。
+- `03-distribution/site/data/affiliate-map.json`：由 `sync-affiliate` 生成的前端脱敏映射（仅 product + `/out/<slug>`）。
 - `.env`：本地密钥，已被 `.gitignore` 忽略。
 - Cloudflare 部署密钥使用 `wrangler secret` 或 CI Secret，不写入 `wrangler.toml`。
 
@@ -178,7 +183,7 @@ config:<name> -> 运行时配置
 
 ## 9. 开发约定
 
-1. Layer 1 不直接写 Cloudflare KV/R2；通过 `affiliate-map.json` 和部署脚本同步。
+1. Layer 1 不直接写 Cloudflare KV/R2；通过 `affiliate-offers.json`（`sync-affiliate` → `sync-kv`）同步。
 2. Layer 2 不包含采集与内容生成逻辑，只做路由、鉴权、缓存与存储。
 3. Layer 3 的模板只消费结构化数据，不直接调用 LLM 或爬虫。
 4. 新增数据源时在 `scraper/` 下建独立适配器，并在 `settings.yaml` 注册。

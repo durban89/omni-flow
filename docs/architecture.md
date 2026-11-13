@@ -62,10 +62,13 @@ sources: []
 
 1. Layer 1 执行 scrape / content / validate。
 2. Hugo 构建 `01-local-worker/build/public`，或直接执行 `build` 阶段。
-3. 同步 `affiliate-map.json` 到 KV。
-4. `wrangler pages deploy` 发布静态站。
-5. `wrangler deploy` 发布 Worker。
-6. 验证 `/healthz`、`/out/<slug>` 和关键页面。
+3. `sync-affiliate`：从 `master-affiliate-db.json` 生成
+   - `config/affiliate-offers.json`（真实 destination，供 KV）
+   - `03-distribution/site/data/affiliate-map.json`（仅 product + `/out/<slug>`，供 Hugo）
+4. `sync-kv`：将 `affiliate-offers.json` 同步到 KV。
+5. `wrangler pages deploy` 发布静态站。
+6. `wrangler deploy` 发布 Worker。
+7. 验证 `/healthz`、`/out/<slug>` 和关键页面。
 
 ## 非目标
 

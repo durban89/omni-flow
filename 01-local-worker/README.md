@@ -49,9 +49,10 @@
 | `validate` | `python -m local_worker.pipeline.run validate` | 校验内容契约、字数、唯一性、SEO 与审核发布门禁 |
 | `export` | `python -m local_worker.pipeline.run export` | 将内容输出为 Hugo Markdown 文件 (`03-distribution/site/content/posts/*.md`) |
 | `build` | `python -m local_worker.pipeline.run build` | 调用 Hugo 构建静态站产物输出到 `build/public/` |
-| `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-map.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
+| `sync-affiliate` | `python -m local_worker.pipeline.run sync-affiliate` | 从 `master-affiliate-db.json` 生成 Hugo 脱敏映射 + `affiliate-offers.json` |
+| `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
 | `review` | `python -m local_worker.pipeline.run review` | 人工审核工作流（查看列表、通过审核、驳回） |
-| `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`scrape -> content -> validate -> export -> build -> sync-kv` |
+| `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`scrape -> content -> validate -> export -> build -> sync-affiliate -> sync-kv` |
 
 ## 人工审核工作流 (Review Queue)
 
