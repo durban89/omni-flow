@@ -19,8 +19,11 @@ def test_content_generator_template_fallback() -> None:
         category="office",
     )
 
-    generator = ContentGenerator({"enabled": True, "model": "gpt-4o-mini"})
-    body, summary = generator.generate(raw)
+    with patch.dict(
+        "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": ""}
+    ):
+        generator = ContentGenerator({"enabled": True, "model": "gpt-4o-mini"})
+        body, summary = generator.generate(raw)
 
     assert "# Best Ergonomic Chair 2026" in body
     assert "## Overview: Office Buying Guide" in body
