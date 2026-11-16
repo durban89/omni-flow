@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
+from local_worker.config import resolve_llm_settings
 from local_worker.content.generator import ContentGenerator
 from local_worker.content.text import (
     body_to_markdown,  # Retained for fallback & non-LLM pipelines
@@ -44,14 +46,14 @@ def unique_slug(base: str, used: set[str]) -> str:
 def normalize_raw_items(
     items: Iterable[RawItem],
     settings: dict[str, Any],
-    master_db_path: str = "",
+    master_db_path: str | Path = "",
     *,
     reviews: dict[str, dict[str, Any]] | None = None,
 ) -> list[ContentItem]:
     app = _mapping(settings.get("app"))
     pipeline = _mapping(settings.get("pipeline"))
     compliance = _mapping(settings.get("compliance"))
-    llm_settings = _mapping(settings.get("llm"))
+    llm_settings = resolve_llm_settings(settings)
 
     locale = str(app.get("default_locale") or "en")
     content_rating = str(compliance.get("default_content_rating") or "general")
@@ -59,8 +61,7 @@ def normalize_raw_items(
     auto_approve = bool(pipeline.get("auto_approve", False))
 
     # Initialize generator and check credentials/explicit activation flags
-    generator = ContentGenerator(config=llm_settings)
-    generator = generator.set_master_db_path(master_db_path)
+    generator = ContentGenerator(config=llm_settings).set_master_db_path(master_db_path)
     enable_llm = bool(llm_settings.get("enable", False)) and generator.has_llm_credentials
 
     now = utc_now()
@@ -82,17 +83,13 @@ def normalize_raw_items(
         item_id = content_id(url, title)
 
         existing_review = reviews.get(item_id) if reviews else None
-            
-        # ===== FIX: Check if LLM processing is active AND has valid credentials =====
+
         if enable_llm and not existing_review:
-            logger.info("[generator] Processing content via LLM generator for item_id: %s", item_id)
-            
+            logger.info("[generator] generating content via LLM for item_id: %s", item_id)
             is_health_category = raw.category.strip().lower() in {"health", "medical", "wellness"}
-            generator.set_health_mode(is_health_category)
-            
-            body, summary = generator.generate(raw)
+            body, summary = generator.set_health_mode(is_health_category).generate(raw)
         else:
-            # Fallback path for unit tests or skipped items: Parse natively without template overruns
+            # Fallback path for reviewed items or when LLM is disabled: reuse raw body as-is.
             body = body_to_markdown(raw.body, raw.body_format)
             if not body:
                 continue
@@ -108,9 +105,6 @@ def normalize_raw_items(
         published_at = None
         noindex = True
 
-        logger.info("[generator] Processing body: %s", body)
-        logger.info("[generator] Processing summary: %s", summary)
-
         if existing_review:
             status = str(existing_review.get("status") or "draft")
             reviewed = bool(existing_review.get("reviewed", False))
@@ -121,6 +115,10 @@ def normalize_raw_items(
             reviewed = True
             published_at = now
             noindex = False
+
+        logger.debug(
+            "[generator] item_id=%s words=%d status=%s", item_id, words, status
+        )
 
         item = ContentItem(
             id=item_id,

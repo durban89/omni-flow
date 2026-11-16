@@ -1,3 +1,5 @@
+from unittest.mock import MagicMock, patch
+
 from local_worker.content.normalize import normalize_raw_items
 from local_worker.models import RawItem, utc_now
 
@@ -60,6 +62,31 @@ def test_normalize_adds_suffix_for_duplicate_slugs() -> None:
     )
 
     assert [item.slug for item in items] == ["example-post", "example-post-2"]
+
+
+def test_normalize_passes_merged_llm_settings_to_generator() -> None:
+    settings = {
+        "content": {"model": "custom-model", "temperature": 0.5, "max_words": 900},
+        "llm": {"enable": True},
+    }
+    fake_generator = MagicMock()
+    fake_generator.has_llm_credentials = True
+    fake_generator.set_master_db_path.return_value = fake_generator
+    fake_generator.set_health_mode.return_value = fake_generator
+    fake_generator.generate.return_value = ("word " * 320, "Generated summary.")
+
+    with patch(
+        "local_worker.content.normalize.ContentGenerator", return_value=fake_generator
+    ) as ctor:
+        items = normalize_raw_items([make_raw()], settings, "config/master-affiliate-db.json")
+
+    llm_config = ctor.call_args.kwargs["config"]
+    assert llm_config["model"] == "custom-model"
+    assert llm_config["temperature"] == 0.5
+    assert llm_config["max_words"] == 900
+    assert llm_config["enable"] is True
+    assert items[0].body_markdown == "word " * 320
+
 
 
 def test_normalize_converts_html_body_to_text() -> None:

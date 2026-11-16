@@ -35,6 +35,7 @@
 │   │   └── export_hugo.py     # 导出 Hugo Markdown 文章与 Data JSON
 │   └── pipeline/              # 编排入口与同步工具
 │       ├── run.py             # 分阶段执行入口 CLI
+│       ├── affiliate_sync.py  # master DB 生成 Hugo 脱敏映射与 affiliate-offers.json
 │       └── kv_sync.py         # Cloudflare KV bulk put 生成与同步
 ├── tests/                     # 单元与集成测试
 └── build/                     # 构建产物（已忽略）
@@ -70,6 +71,10 @@ python -m local_worker.pipeline.run review --action reject --target example-buyi
 ```
 
 审核决策保存在 `build/data/review_state.json`，重新运行流水线不会覆盖已有人工审核状态。在全自动 CI 场景下，可追加 `--auto-approve` 参数自动通过符合门禁的文章。
+
+## 内容生成配置
+
+`content:` 段（`model`、`temperature`、`max_words`、`timeout_seconds`）与 `llm:` 段会合并为一份 LLM 配置，`llm:` 中的同名键优先；`enable` 也接受 `enabled` 写法，缺省为关闭。只有 `llm.enable` 为真且环境中存在 `OPENAI_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` 之一时才会调用模型，否则使用模板生成。`category` 为 `health`、`medical` 或 `wellness` 的条目会走健康内容提示词，并只允许使用 master DB 中处于启用状态的联盟短代码。
 
 ## 数据源适配器配置
 
