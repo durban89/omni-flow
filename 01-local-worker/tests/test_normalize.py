@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from local_worker.content.normalize import normalize_raw_items
+from local_worker.errors import LLMGenerationError
 from local_worker.models import RawItem, utc_now
 
 SETTINGS = {
@@ -87,6 +88,22 @@ def test_normalize_passes_merged_llm_settings_to_generator() -> None:
     assert llm_config["enable"] is True
     assert items[0].body_markdown == "word " * 320
 
+
+
+def test_normalize_skips_item_when_llm_generation_fails() -> None:
+    settings = {"pipeline": {"max_items_per_run": 10}, "llm": {"enable": True}}
+    fake_generator = MagicMock()
+    fake_generator.has_llm_credentials = True
+    fake_generator.set_master_db_path.return_value = fake_generator
+    fake_generator.set_health_mode.return_value = fake_generator
+    fake_generator.generate.side_effect = LLMGenerationError("429 Too Many Requests")
+
+    with patch("local_worker.content.normalize.ContentGenerator", return_value=fake_generator):
+        items = normalize_raw_items(
+            [make_raw(tags=("topic", "health"), category="health")], settings, ""
+        )
+
+    assert items == []
 
 
 def test_normalize_converts_html_body_to_text() -> None:

@@ -14,5 +14,9 @@ class ContentError(LocalWorkerError):
     """Raised when content normalization or validation fails."""
 
 
+class LLMGenerationError(ContentError):
+    """Raised when an LLM-only item could not be generated and must be retried later."""
+
+
 class ModelValidationError(LocalWorkerError):
     """Raised when a data contract is violated."""

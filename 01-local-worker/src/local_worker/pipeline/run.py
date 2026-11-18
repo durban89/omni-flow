@@ -261,6 +261,13 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         master_db_path,
         reviews=saved_reviews)
 
+    if not new_items:
+        logger.warning(
+            "[content] no item(s) generated this run (see warnings above); %d item(s) left unchanged",
+            len(existing_items),
+        )
+        return content_path
+
     used_slugs = {item.slug for item in existing_items}
     for index, item in enumerate(new_items):
         if item.slug in used_slugs:

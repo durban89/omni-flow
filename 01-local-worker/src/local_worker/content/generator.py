@@ -11,6 +11,7 @@ import httpx
 from dotenv import load_dotenv
 
 from local_worker.content.text import count_words, truncate
+from local_worker.errors import LLMGenerationError
 from local_worker.models import RawItem
 
 load_dotenv()
@@ -96,7 +97,12 @@ class ContentGenerator:
         return active_tokens
 
     def generate(self, raw: RawItem) -> tuple[str, str]:
-        """Return (body_markdown, summary). Falls back to template on LLM failure."""
+        """Return (body_markdown, summary).
+
+        Falls back to the editorial template on LLM failure, except for topic
+        leads: those are LLM-only, so a failure raises LLMGenerationError and the
+        item is left unwritten to be retried on the next run.
+        """
         # One generator lives for a whole pipeline run, so read the master DB only once.
         if not self._tokens_loaded:
             self.valid_tokens = self.load_active_affiliate_tokens()
@@ -108,6 +114,12 @@ class ContentGenerator:
                     return self._call_health_llm(raw)
                 return self._call_llm(raw)
             except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+                if self._is_topic_lead(raw):
+                    # The template skeleton is English and would claim this id,
+                    # blocking any retry once the model quota recovers.
+                    raise LLMGenerationError(
+                        f"LLM generation failed for topic lead {raw.source_url}: {exc}"
+                    ) from exc
                 logger.warning("LLM generation failed, falling back to template: %s", exc)
 
         return self._template_generate(raw)

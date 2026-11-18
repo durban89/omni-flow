@@ -13,7 +13,7 @@ from local_worker.content.text import (
     count_words,
     truncate,
 )
-from local_worker.errors import ContentError
+from local_worker.errors import ContentError, LLMGenerationError
 from local_worker.models import (
     SEO,
     ContentItem,
@@ -68,6 +68,7 @@ def normalize_raw_items(
     seen_urls: set[str] = set()
     used_slugs: set[str] = set()
     results: list[ContentItem] = []
+    deferred_ids: list[str] = []
 
     for raw in items:
         errors = raw.validate()
@@ -87,7 +88,13 @@ def normalize_raw_items(
         if enable_llm and not existing_review:
             logger.info("[generator] generating content via LLM for item_id: %s", item_id)
             is_health_category = raw.category.strip().lower() in {"health", "medical", "wellness"}
-            body, summary = generator.set_health_mode(is_health_category).generate(raw)
+            try:
+                body, summary = generator.set_health_mode(is_health_category).generate(raw)
+            except LLMGenerationError as exc:
+                # Leave the item out of content_items.json; the next run retries it.
+                logger.warning("[generator] skipping %s, will retry next run: %s", item_id, exc)
+                deferred_ids.append(item_id)
+                continue
         else:
             # Fallback path for reviewed items or when LLM is disabled: reuse raw body as-is.
             body = body_to_markdown(raw.body, raw.body_format)
@@ -158,5 +165,13 @@ def normalize_raw_items(
 
         if len(results) >= max_items:
             break
+
+    if deferred_ids:
+        logger.warning(
+            "[generator] %d item(s) could not be generated and were not written "
+            "(retried on next run): %s",
+            len(deferred_ids),
+            ", ".join(deferred_ids),
+        )
 
     return results

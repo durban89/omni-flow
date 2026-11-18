@@ -2,8 +2,11 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from local_worker.content.generator import ContentGenerator
 from local_worker.content.text import count_words
+from local_worker.errors import LLMGenerationError
 from local_worker.models import RawItem, utc_now
 
 
@@ -54,6 +57,52 @@ def test_topic_lead_brief_is_not_copied_into_template() -> None:
     assert "# How to choose the right condom size" in body
     assert "Topic lead:" not in body
     assert "Seed query:" not in body
+
+
+def test_topic_lead_raises_instead_of_falling_back_when_llm_fails() -> None:
+    raw = RawItem(
+        source_id="topic_health_zh",
+        source_url="https://www.fda.gov.tw/TC/siteListContent.aspx?id=50981",
+        title="衛生福利部食品藥物管理署",
+        summary="Search snippet.",
+        body="Topic lead: 衛生福利部食品藥物管理署",
+        body_format="text",
+        retrieved_at=utc_now(),
+        category="health",
+        tags=("topic", "health"),
+    )
+
+    with patch.dict(
+        "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": "sk-test"}
+    ):
+        generator = ContentGenerator({"enable": True, "model": "free-model"})
+        with (
+            patch.object(generator, "_chat_completion", side_effect=ValueError("empty")),
+            pytest.raises(LLMGenerationError, match="topic lead"),
+        ):
+            generator.generate(raw)
+
+
+def test_non_topic_item_still_falls_back_when_llm_fails() -> None:
+    raw = RawItem(
+        source_id="rss_feed",
+        source_url="https://example.com/guide",
+        title="Best Ergonomic Chair 2026",
+        summary="A guide on choosing ergonomic chairs.",
+        body="Breathable mesh, lumbar support adjustment, and 5-year warranty.",
+        body_format="markdown",
+        retrieved_at=utc_now(),
+        category="office",
+    )
+
+    with patch.dict(
+        "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": "sk-test"}
+    ):
+        generator = ContentGenerator({"enable": True, "model": "free-model"})
+        with patch.object(generator, "_chat_completion", side_effect=ValueError("empty")):
+            body, _summary = generator.generate(raw)
+
+    assert "## Overview: Office Buying Guide" in body
 
 
 def test_affiliate_tokens_loaded_once_per_generator(tmp_path: Path) -> None:
