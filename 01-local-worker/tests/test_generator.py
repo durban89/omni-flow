@@ -33,6 +33,29 @@ def test_content_generator_template_fallback() -> None:
     assert len(summary) > 10
 
 
+def test_topic_lead_brief_is_not_copied_into_template() -> None:
+    raw = RawItem(
+        source_id="topic_search",
+        source_url="https://news.example.com/condom-sizing",
+        title="How to choose the right condom size",
+        summary="Search snippet about sizing.",
+        body="Topic lead: How to choose the right condom size\nSeed query: condom sizing",
+        body_format="text",
+        retrieved_at=utc_now(),
+        category="health",
+        tags=("health", "topic"),
+    )
+
+    with patch.dict(
+        "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": ""}
+    ):
+        body, _summary = ContentGenerator({}).generate(raw)
+
+    assert "# How to choose the right condom size" in body
+    assert "Topic lead:" not in body
+    assert "Seed query:" not in body
+
+
 def test_affiliate_tokens_loaded_once_per_generator(tmp_path: Path) -> None:
     db_path = tmp_path / "master-affiliate-db.json"
     db_path.write_text(

@@ -125,6 +125,9 @@ class ContentGenerator:
                 {"role": "user", "content": user_prompt},
             ],
             "response_format": {"type": "json_object"},
+            # This endpoint always spends part of the budget on reasoning and
+            # rejects attempts to disable it, so leave generous headroom.
+            "max_tokens": 8000,
         }
         with httpx.Client(timeout=self.timeout_seconds) as client:
             resp = client.post(
@@ -140,7 +143,8 @@ class ContentGenerator:
         return content
 
     def _parse_llm_json(self, content: str) -> tuple[str, str]:
-        parsed = json.loads(content)
+        # Models sometimes emit raw newlines inside string values.
+        parsed = json.loads(content, strict=False)
         if not isinstance(parsed, dict):
             raise TypeError("LLM JSON root must be an object")
         body = str(parsed.get("body_markdown") or "").strip()
@@ -204,6 +208,7 @@ class ContentGenerator:
             "Hard rules:\n"
             "1. Use clinical, non-vulgar language only.\n"
             f"{affiliate_rules}"
+            "5. Write the article in Simplified Chinese (简体中文).\n"
         )
         user_prompt = (
             f"User question: {raw.title}\n"
@@ -215,7 +220,12 @@ class ContentGenerator:
         body, summary = self._parse_llm_json(content)
         return self._finalize_llm_body(body, summary)
 
+    def _is_topic_lead(self, raw: RawItem) -> bool:
+        """Topic leads carry search metadata only, so the article must be written from scratch."""
+        return "topic" in raw.tags
+
     def _call_llm(self, raw: RawItem) -> tuple[str, str]:
+        is_topic_lead = self._is_topic_lead(raw)
         system_prompt = (
             "You are an expert editorial reviewer for an authoritative buying guide and CPS product matrix. "
             "Write a structured, objective, and engaging product review or buyer's guide based on the provided source information. "
@@ -224,14 +234,22 @@ class ContentGenerator:
             "- Minimum 350 words.\n"
             "- Include sections: ## Overview & Key Features, ## In-Depth Analysis, ## Pros & Cons, ## Buying Recommendation.\n"
             "- Maintain strict compliance: no false claims, no cloaking, clear editorial value.\n"
+            "- Write in Simplified Chinese (简体中文).\n"
             "- Return JSON with keys 'summary' and 'body_markdown'."
         )
+        if is_topic_lead:
+            system_prompt += (
+                "\n- The input is a topic lead from search metadata only. Write an original article "
+                "about the topic in your own words; do not copy, quote, or closely paraphrase any "
+                "third-party text, and do not present the topic lead as a source."
+            )
+        body_label = "Topic Lead" if is_topic_lead else "Source Content"
         user_prompt = (
             f"Title: {raw.title}\n"
             f"Category: {raw.category}\n"
             f"Source URL: {raw.source_url}\n"
             f"Original Summary: {raw.summary}\n"
-            f"Source Content: {raw.body[:3000]}"
+            f"{body_label}: {raw.body[:3000]}"
         )
 
         content = self._chat_completion(system_prompt, user_prompt)
@@ -245,6 +263,9 @@ class ContentGenerator:
         summary = raw.summary.strip() or (
             f"A comprehensive buying guide and hands-on analysis of {title}."
         )
+
+        # Topic leads are writing prompts, so their brief must not end up as article text.
+        source_body = "" if self._is_topic_lead(raw) else raw.body.strip()
 
         body_parts = [
             f"# {title}",
@@ -267,7 +288,7 @@ class ContentGenerator:
             "",
             "## Detailed Breakdown",
             "",
-            raw.body.strip(),
+            source_body,
             "",
             "## Pros and Cons",
             "",

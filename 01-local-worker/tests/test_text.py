@@ -8,6 +8,12 @@ from local_worker.content.text import (
 )
 
 
+def test_count_words_treats_cjk_characters_as_words() -> None:
+    assert count_words("安全套正确使用方法") == 9
+    assert count_words("使用 condom 时注意") == 6
+    assert count_words("well known product") == 3
+
+
 def test_html_to_markdown_basic_elements() -> None:
     html_input = """
     <h2>Buying Guide</h2>

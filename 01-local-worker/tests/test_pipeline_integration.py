@@ -72,6 +72,73 @@ def test_scrape_content_validate_end_to_end(tmp_path: Path) -> None:
     assert manifest["status_counts"] == {"draft": 1}
 
 
+def test_run_content_is_incremental_by_id(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.json"
+    input_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "First Guide",
+                        "summary": "First summary.",
+                        "url": "https://example.com/first",
+                        "body_markdown": "First body content.",
+                        "category": "guides",
+                    },
+                    {
+                        "title": "Second Guide",
+                        "summary": "Second summary.",
+                        "url": "https://example.com/second",
+                        "body_markdown": "Second body content.",
+                        "category": "guides",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings: dict[str, Any] = {
+        "app": {"default_locale": "en"},
+        "pipeline": {"data_dir": str(tmp_path / "data"), "max_items_per_run": 10},
+        "scraper": {
+            "request_delay_ms": 0,
+            "respect_robots_txt": False,
+            "sources": [
+                {"id": "curated", "type": "json_file", "enabled": True, "path": str(input_path)}
+            ],
+        },
+        "compliance": {"default_content_rating": "general"},
+    }
+
+    raw_path = run_scrape(tmp_path, settings)
+    content_path = run_content(tmp_path, settings)
+    first_payload = json.loads(content_path.read_text(encoding="utf-8"))
+    first_ids = sorted(item["id"] for item in first_payload["items"])
+    first_modified = content_path.stat().st_mtime_ns
+    assert first_payload["item_count"] == 2
+
+    # Re-running must not regenerate existing items.
+    manifest_path = tmp_path / "data" / "manifest.json"
+    manifest_modified = manifest_path.stat().st_mtime_ns
+    run_content(tmp_path, settings)
+    second_payload = json.loads(content_path.read_text(encoding="utf-8"))
+    assert second_payload["item_count"] == 2
+    # Nothing new means nothing is rewritten, so hand edits stay intact.
+    assert content_path.stat().st_mtime_ns == first_modified
+    assert manifest_path.stat().st_mtime_ns == manifest_modified
+
+    # Deleting a generated item makes the next run produce it again.
+    second_payload["items"] = [
+        item for item in second_payload["items"] if item["id"] != first_ids[0]
+    ]
+    content_path.write_text(json.dumps(second_payload), encoding="utf-8")
+    run_content(tmp_path, settings)
+    third_payload = json.loads(content_path.read_text(encoding="utf-8"))
+    assert sorted(item["id"] for item in third_payload["items"]) == first_ids
+    assert raw_path.exists()
+
+
 def test_full_pipeline_with_export_review_and_kv_sync(tmp_path: Path) -> None:
     input_path = tmp_path / "input.json"
     long_body = " ".join(["word"] * 320)

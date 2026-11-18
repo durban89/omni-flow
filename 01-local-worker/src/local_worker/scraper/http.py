@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Self
+from typing import Any, Self
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
 
@@ -61,10 +61,13 @@ class HttpClient:
         wait=wait_exponential(multiplier=0.5, min=0.5, max=5.0),
         reraise=True,
     )
-    def _fetch_url(self, url: str) -> httpx.Response:
-        response = self._client.get(url)
+    def _send(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+        response = self._client.request(method, url, **kwargs)
         response.raise_for_status()
         return response
+
+    def _fetch_url(self, url: str) -> httpx.Response:
+        return self._send("GET", url)
 
     def get(self, url: str, *, check_robots: bool = True) -> httpx.Response:
         if not _is_http_url(url):
@@ -75,6 +78,27 @@ class HttpClient:
         self._wait()
         try:
             return self._fetch_url(url)
+        except httpx.HTTPError as exc:
+            logger.warning("Request failed for %s after retries: %s", url, exc)
+            raise ScrapeError(f"request failed for {url}: {exc}") from exc
+
+    def post(
+        self,
+        url: str,
+        *,
+        json: Any = None,
+        headers: dict[str, str] | None = None,
+        check_robots: bool = True,
+    ) -> httpx.Response:
+        """Send a JSON POST. API endpoints may opt out of robots checks."""
+        if not _is_http_url(url):
+            raise ScrapeError(f"invalid http url: {url}")
+        if check_robots and not self.can_fetch(url):
+            raise ScrapeError(f"robots.txt disallows: {url}")
+
+        self._wait()
+        try:
+            return self._send("POST", url, json=json, headers=headers)
         except httpx.HTTPError as exc:
             logger.warning("Request failed for %s after retries: %s", url, exc)
             raise ScrapeError(f"request failed for {url}: {exc}") from exc

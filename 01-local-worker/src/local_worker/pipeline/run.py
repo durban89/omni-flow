@@ -6,12 +6,15 @@ import logging
 import subprocess
 import sys
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from local_worker.config import load_settings
+from dotenv import load_dotenv
+
+from local_worker.config import MODE_ENV_VAR, load_settings, resolve_llm_settings
 from local_worker.content.export_hugo import export_to_hugo
-from local_worker.content.normalize import normalize_raw_items
+from local_worker.content.normalize import normalize_raw_items, unique_slug
 from local_worker.content.review import ReviewService, ReviewStore
 from local_worker.content.validate import validate_content_items
 from local_worker.errors import ContentError, LocalWorkerError, ScrapeError
@@ -20,6 +23,7 @@ from local_worker.models import (
     ContentItem,
     RawItem,
     canonical_url,
+    content_id,
     isoformat,
     utc_now,
 )
@@ -28,6 +32,8 @@ from local_worker.pipeline.kv_sync import sync_affiliate_offers
 from local_worker.scraper import build_sources
 from local_worker.scraper.base import SourceContext
 from local_worker.scraper.http import HttpClient
+
+load_dotenv()
 
 logger = logging.getLogger("local_worker.pipeline")
 
@@ -63,6 +69,11 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
     parser.add_argument("--settings", type=Path, default=DEFAULT_SETTINGS)
+    parser.add_argument(
+        "--mode",
+        help="Settings profile from the `modes:` block (test / production); "
+        f"overrides app.mode and {MODE_ENV_VAR}",
+    )
     parser.add_argument("--auto-approve", action="store_true", help="Auto-approve eligible drafts")
     parser.add_argument("--dry-run", action="store_true", help="Dry run for sync actions")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
@@ -209,16 +220,55 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         if isinstance(entry, dict)
     ]
 
+    # Incremental generation: items that already exist are kept as-is, so the
+    # command is safe to re-run. Deleting a generated item makes the next run
+    # produce it again (the id is derived from source URL + title).
+    content_path = data_dir / "content_items.json"
+    existing_items: list[ContentItem] = []
+    existing_ids: set[str] = set()
+    if content_path.exists():
+        existing_payload = _read_json(content_path)
+        for entry in existing_payload.get("items") or []:
+            if not isinstance(entry, dict):
+                continue
+            existing_item = ContentItem.from_dict(entry)
+            existing_items.append(existing_item)
+            existing_ids.add(existing_item.id)
+
+    pending_raw_items = [
+        raw
+        for raw in raw_items
+        if content_id(canonical_url(raw.source_url), raw.title.strip()) not in existing_ids
+    ]
+    skipped_count = len(raw_items) - len(pending_raw_items)
+    if skipped_count:
+        logger.info(
+            "[content] skipping %d item(s) already generated (delete an entry to regenerate it)",
+            skipped_count,
+        )
+    if not pending_raw_items:
+        logger.info("[content] nothing to generate: %d item(s) up to date", len(existing_items))
+        return content_path
+
     # Load persistent review state if present
     review_store = ReviewStore(data_dir / "review_state.json")
     saved_reviews = review_store.load()
 
     master_db_path = root / "config/master-affiliate-db.json"
-    items = normalize_raw_items(
-        raw_items, 
-        settings, 
+    new_items = normalize_raw_items(
+        pending_raw_items,
+        settings,
         master_db_path,
         reviews=saved_reviews)
+
+    used_slugs = {item.slug for item in existing_items}
+    for index, item in enumerate(new_items):
+        if item.slug in used_slugs:
+            # unique_slug registers the new slug itself.
+            new_items[index] = replace(item, slug=unique_slug(item.slug, used_slugs))
+        else:
+            used_slugs.add(item.slug)
+    items = [*existing_items, *new_items]
 
     errors = validate_content_items(items)
     if errors:
@@ -226,7 +276,6 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         raise ContentError(f"content validation failed:\n{message}")
 
     generated_at = isoformat(utc_now())
-    content_path = data_dir / "content_items.json"
     _write_json(
         content_path,
         {
@@ -245,6 +294,7 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
             "schema_version": SCHEMA_VERSION,
             "generated_at": generated_at,
             "raw_item_count": len(raw_items),
+            "skipped_existing_count": skipped_count,
             "content_item_count": len(items),
             "status_counts": dict(sorted(status_counts.items())),
             "category_counts": dict(sorted(category_counts.items())),
@@ -256,7 +306,12 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
         },
     )
 
-    logger.info("[content] wrote %d content item(s) to %s", len(items), content_path)
+    logger.info(
+        "[content] wrote %d content item(s) to %s (%d new)",
+        len(items),
+        content_path,
+        len(new_items),
+    )
 
     # Automatically export to Hugo site
     build_conf = _section(settings, "build")
@@ -437,7 +492,14 @@ def main() -> None:
             settings_path = example_settings
 
     try:
-        settings = load_settings(settings_path)
+        settings = load_settings(settings_path, mode=args.mode)
+        logger.info(
+            "[config] mode=%s | scrape cap=%s | content cap=%s | model=%s",
+            _section(settings, "app").get("mode"),
+            _section(settings, "scraper").get("max_items_per_run", "-"),
+            _section(settings, "pipeline").get("max_items_per_run", "-"),
+            resolve_llm_settings(settings).get("model", "-"),
+        )
         if args.auto_approve:
             if "pipeline" not in settings or not isinstance(settings["pipeline"], dict):
                 settings["pipeline"] = {}

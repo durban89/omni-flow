@@ -237,5 +237,16 @@ def clean_summary(value: str, fallback_body: str) -> str:
     return truncate(text, 280)
 
 
+CJK_CHAR_RE = re.compile(r"[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\u3040-\u30ff\uac00-\ud7af]")
+WORD_RE = re.compile(r"[^\W_]+(?:[-'][^\W_]+)*", re.UNICODE)
+
+
 def count_words(value: str) -> int:
-    return len(re.findall(r"\S+", value))
+    """Count words, treating each CJK character as one word.
+
+    Chinese text has almost no spaces, so whitespace splitting would report a
+    full article as a handful of words.
+    """
+    cjk_chars = len(CJK_CHAR_RE.findall(value))
+    latin_words = len(WORD_RE.findall(CJK_CHAR_RE.sub(" ", value)))
+    return cjk_chars + latin_words

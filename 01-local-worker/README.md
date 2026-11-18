@@ -25,7 +25,8 @@
 │   │   ├── http.py            # 支持 robots.txt 与 Tenacity 重试的 HTTP 客户端
 │   │   ├── json_file.py       # 本地文件导入适配器
 │   │   ├── rss.py             # RSS / Atom 源适配器
-│   │   └── playwright_source.py # 动态浏览器抓取适配器
+│   │   ├── playwright_source.py # 动态浏览器抓取适配器
+│   │   └── topic_search.py    # 搜索 API 选题发现适配器
 │   ├── content/               # 清洗、生成、规范化、审核与导出
 │   │   ├── text.py            # 富文本 HTML 转 Markdown、摘要提取、字数统计
 │   │   ├── generator.py       # LLM 与合规模板内容扩展生成
@@ -46,7 +47,7 @@
 | 阶段 | 命令 | 说明 |
 | :--- | :--- | :--- |
 | `scrape` | `python -m local_worker.pipeline.run scrape` | 采集各数据源并去重，输出 `build/data/raw_items.json` |
-| `content` | `python -m local_worker.pipeline.run content` | 规范化为 `ContentItem`，输出 `content_items.json`，并同步导出至 Hugo |
+| `content` | `python -m local_worker.pipeline.run content` | 规范化为 `ContentItem`，输出 `content_items.json`，并同步导出至 Hugo。**增量执行**：id（源 URL + 标题）已存在的条目会跳过，删除某条后重跑只补生成该条 |
 | `validate` | `python -m local_worker.pipeline.run validate` | 校验内容契约、字数、唯一性、SEO 与审核发布门禁 |
 | `export` | `python -m local_worker.pipeline.run export` | 将内容输出为 Hugo Markdown 文件 (`03-distribution/site/content/posts/*.md`) |
 | `build` | `python -m local_worker.pipeline.run build` | 调用 Hugo 构建静态站产物输出到 `build/public/` |
@@ -54,6 +55,40 @@
 | `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
 | `review` | `python -m local_worker.pipeline.run review` | 人工审核工作流（查看列表、通过审核、驳回） |
 | `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`scrape -> content -> validate -> export -> build -> sync-affiliate -> sync-kv` |
+
+## 测试 / 生产模式
+
+在 `config/settings.yaml` 用 `app.mode` 选择配置档，`modes:` 下的同名块会**深度合并**覆盖基础配置，只需写差异部分：
+
+```yaml
+app:
+  mode: "test"        # test | production
+
+modes:
+  test:
+    pipeline: {max_items_per_run: 1}   # content 阶段最多生成 1 条
+    scraper: {max_items_per_run: 1}    # scrape 阶段最多采集 1 条
+  production:
+    pipeline: {max_items_per_run: 20}
+    scraper: {max_items_per_run: 20}
+    # 上线换更强模型时在这里覆盖：
+    # llm: {model: "your/stronger-model"}
+```
+
+临时切换而不改文件：
+
+```bash
+python -m local_worker.pipeline.run content --mode production
+LOCAL_WORKER_MODE=production python -m local_worker.pipeline.run scrape
+```
+
+优先级：`--mode` > 环境变量 `LOCAL_WORKER_MODE` > `app.mode`，缺省为 `production`；写了 `modes:` 但模式名不存在会直接报错，不会静默回退。每条命令启动时会打印生效配置，例如：
+
+```
+[config] mode=test | scrape cap=1 | content cap=1 | model=baidu/ernie-5.5-flash-preview:free
+```
+
+注意：test 模式下 `scrape` 只保留 1 条线索（会覆盖 `raw_items.json`），适合验证提示词与模型效果；累积文章请用 production 模式。
 
 ## 人工审核工作流 (Review Queue)
 
@@ -78,7 +113,7 @@ python -m local_worker.pipeline.run review --action reject --target example-buyi
 
 ## 数据源适配器配置
 
-支持 `json_file`、`rss` 以及 `playwright`（无头浏览器动态抓取）：
+支持 `json_file`、`rss`、`topic_search`（搜索 API 选题发现）以及 `playwright`（无头浏览器动态抓取）：
 
 ```yaml
 scraper:
@@ -91,12 +126,26 @@ scraper:
       type: rss
       enabled: true
       url: "https://example.com/rss.xml"
+    - id: topic_health_zh
+      type: topic_search
+      enabled: true
+      queries:
+        - "避孕套 选购 尺寸 材质"
+      num_results: 8
+      default_category: "health"
+      default_tags: ["topic", "health"]
     - id: dynamic_page
       type: playwright
       enabled: false
       url: "https://example.com/products"
       wait_selector: ".product-grid"
 ```
+
+### 🔎 选题发现（topic_search）
+
+`topic_search` 通过搜索 API（默认 Exa，`POST https://api.exa.ai/search`）按关键词检索选题，只取标题、URL 与短摘要作为写作线索，**不抓取、不复用第三方正文**。生成的条目会带上 `topic` 标签，`content` 阶段据此使用「原创写作」提示词，模板兜底也不会把检索摘要写进正文。
+
+需要设置 `EXA_API_KEY`（写入 `.env` 或环境变量，`scrape` 阶段会加载项目根目录的 `.env`）。它调用的是文档化的 API 端点，因此不受 robots.txt 约束；被 robots 禁止的页面仍然会被 `playwright` 适配器拒绝。
 
 ### 📡 RSS 源
 
