@@ -1,0 +1,680 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>local-worker console</title>
+<style>
+  :root {
+    --bg: #0f1218;
+    --panel: #171b23;
+    --panel-2: #1d222c;
+    --border: #2a3140;
+    --text: #e6e9ef;
+    --muted: #8e97a8;
+    --accent: #6ea8fe;
+    --ok: #4ade80;
+    --warn: #fbbf24;
+    --err: #f87171;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+  }
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px;
+    padding: 16px 22px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0; letter-spacing: .02em; }
+  header .brand { color: var(--accent); font-family: var(--mono); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+  .chip {
+    font-family: var(--mono); font-size: 12px; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  main { padding: 20px 22px 40px; max-width: 1180px; margin: 0 auto; display: grid; gap: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card h2 { font-size: 13px; margin: 0 0 12px; color: var(--muted); font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  button, select {
+    font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 12px; cursor: pointer;
+  }
+  button:hover:not(:disabled), select:hover { border-color: #46536a; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: #21406b; border-color: #2f5c99; }
+  button.danger { color: var(--err); }
+  button.small { padding: 3px 9px; font-size: 12px; }
+  .actions .spacer { flex: 1; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+  .stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; }
+  .stat .k { color: var(--muted); font-size: 12px; }
+  .stat .v { font-family: var(--mono); font-size: 18px; margin-top: 4px; word-break: break-all; }
+  .stat .s { color: var(--muted); font-size: 11px; margin-top: 2px; font-family: var(--mono); }
+  #status { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  #status .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #4b5563; margin-right: 6px; vertical-align: middle; }
+  #status.running .dot { background: var(--accent); animation: pulse 1s infinite; }
+  #status.succeeded .dot { background: var(--ok); }
+  #status.failed .dot { background: var(--err); }
+  @keyframes pulse { 50% { opacity: .25; } }
+  #log {
+    height: 260px; overflow: auto; margin: 0; padding: 10px 12px;
+    background: #0b0e13; border: 1px solid var(--border); border-radius: 8px;
+    font-family: var(--mono); font-size: 12px; white-space: pre-wrap; word-break: break-word;
+  }
+  #log .err { color: var(--err); }
+  #log .warn { color: var(--warn); }
+  .log-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .log-head h2 { margin: 0; }
+  .log-head .spacer { flex: 1; }
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; flex-wrap: wrap; }
+  .tabs button { background: none; border: none; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 8px 12px; }
+  .tabs button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .toolbar input[type="search"] {
+    flex: 1; min-width: 180px; font: inherit; color: var(--text); background: var(--panel-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px;
+  }
+  .toolbar .count { color: var(--muted); font-size: 12px; font-family: var(--mono); }
+  .table-wrap { overflow: auto; max-height: 460px; border: 1px solid var(--border); border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { position: sticky; top: 0; background: var(--panel-2); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); z-index: 1; }
+  tbody tr { cursor: pointer; }
+  tbody tr:hover { background: #1b2130; }
+  tbody tr.selected { background: #1d2942; }
+  td.title { max-width: 460px; }
+  td.title .sub { color: var(--muted); font-size: 11px; font-family: var(--mono); margin-top: 2px; word-break: break-all; }
+  .badge { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .badge.published { color: var(--ok); border-color: #2c5c3f; }
+  .badge.draft { color: var(--warn); border-color: #5c4a2c; }
+  .badge.archived { color: var(--muted); }
+  .empty { color: var(--muted); padding: 22px 12px; text-align: center; }
+  #detail { display: none; }
+  #detail.open { display: block; }
+  #detail pre {
+    margin: 0; padding: 12px; background: #0b0e13; border: 1px solid var(--border); border-radius: 8px;
+    max-height: 380px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: var(--mono); font-size: 12px;
+  }
+  #detail .meta { color: var(--muted); font-size: 12px; margin-bottom: 10px; word-break: break-all; }
+  #detail .meta a { color: var(--accent); }
+  #history td { cursor: default; }
+  tbody tr[data-offer] { cursor: default; }
+  .err-text { color: var(--err); font-family: var(--mono); font-size: 12px; }
+  .modal { position: fixed; inset: 0; background: rgba(7, 10, 15, .72); display: grid; place-items: center; padding: 20px; z-index: 20; }
+  .modal[hidden] { display: none; }
+  .modal-card { width: min(640px, 100%); background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px; display: grid; gap: 12px; max-height: 90vh; overflow: auto; }
+  .modal-card h2 { margin: 0; }
+  .fields { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .field { display: grid; gap: 4px; }
+  .field label { color: var(--muted); font-size: 12px; }
+  .field input, .field select {
+    font: inherit; color: var(--text); background: var(--panel-2); width: 100%;
+    border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px;
+  }
+  .field.wide { grid-column: 1 / -1; }
+  .hint { color: var(--muted); font-size: 12px; margin: 0 0 10px; word-break: break-all; }
+  .hint code { font-family: var(--mono); color: var(--text); }
+  .row-actions { display: flex; gap: 6px; }
+  #offer-msg { min-height: 1em; margin-bottom: 8px; font-family: var(--mono); font-size: 12px; color: var(--ok); }
+  #offer-msg.error { color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="brand">local-worker</span> 控制台</h1>
+  <div class="chips" id="chips"></div>
+</header>
+
+<main>
+  <section class="card">
+    <h2>概览</h2>
+    <div class="grid" id="overview"></div>
+  </section>
+
+  <section class="card">
+    <h2>操作</h2>
+    <div class="actions">
+      <button class="primary" data-stage="scrape">发起采集</button>
+      <button class="primary" data-stage="content">生成内容</button>
+      <button data-stage="validate">校验</button>
+      <button data-stage="export">导出 Hugo</button>
+      <button data-stage="build">构建站点</button>
+      <button data-stage="sync-affiliate">同步联盟 (master→文件)</button>
+      <button data-stage="sync-kv">推送 KV</button>
+      <div class="spacer"></div>
+      <label class="count" for="mode">模式</label>
+      <select id="mode">
+        <option value="">配置默认</option>
+        <option value="test">test</option>
+        <option value="production">production</option>
+      </select>
+      <button class="small" id="refresh">刷新数据</button>
+    </div>
+    <p class="count" style="margin:10px 0 0">
+      每次操作都会以子进程运行现有 CLI 阶段，同一时间只允许一个任务。
+    </p>
+  </section>
+
+  <section class="card">
+    <div class="log-head">
+      <h2>运行日志</h2>
+      <span id="status"><span class="dot"></span>空闲</span>
+      <div class="spacer"></div>
+      <label class="count"><input type="checkbox" id="follow" checked /> 自动滚动</label>
+      <button class="small" id="clear-log">清空显示</button>
+    </div>
+    <pre id="log"></pre>
+  </section>
+
+  <section class="card">
+    <div class="tabs" id="tabs">
+      <button data-tab="raw" class="active">采集结果</button>
+      <button data-tab="content">内容条目</button>
+      <button data-tab="history">任务历史</button>
+      <button data-tab="offers">联盟 Offer</button>
+    </div>
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="按标题 / slug / 来源筛选…" />
+      <span class="count" id="count"></span>
+      <button class="small" id="new-offer" hidden>新增 Offer</button>
+    </div>
+    <p class="hint" id="offers-hint" hidden></p>
+    <div id="offer-msg"></div>
+    <div class="table-wrap">
+      <table id="table"></table>
+    </div>
+  </section>
+
+  <section class="card" id="detail">
+    <h2>条目详情</h2>
+    <div class="meta" id="detail-meta"></div>
+    <pre id="detail-body"></pre>
+  </section>
+</main>
+
+<div class="modal" id="offer-modal" hidden>
+  <form class="modal-card" id="offer-form">
+    <h2 id="offer-title">新增 Offer</h2>
+    <div class="fields">
+      <div class="field">
+        <label for="offer-token">token（master DB 的键名，也是 hugo shortcode 引用键）</label>
+        <input id="offer-token" placeholder="okamoto-001-poly" required />
+      </div>
+      <div class="field">
+        <label for="offer-product">产品名称</label>
+        <input id="offer-product" placeholder="冈本001聚氨酯超薄安全套" required />
+      </div>
+      <div class="field wide">
+        <label for="offer-masked">masked_path（站内短链，如 /out/okamoto-001）</label>
+        <input id="offer-masked" placeholder="/out/okamoto-001" required />
+      </div>
+      <div class="field">
+        <label for="offer-status">状态</label>
+        <select id="offer-status"></select>
+      </div>
+      <div class="field wide">
+        <label for="offer-destination">destination（真实联盟链接，http/https）</label>
+        <input id="offer-destination" placeholder="https://..." required />
+      </div>
+      <div class="field">
+        <label for="offer-geo">geo（逗号分隔国家码，可留空）</label>
+        <input id="offer-geo" placeholder="US, CA, GB" />
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="offer-disclosure" checked /> 需要联盟披露</label>
+      </div>
+    </div>
+    <div class="err-text" id="offer-error"></div>
+    <div class="actions">
+      <button type="submit" class="primary">保存</button>
+      <button type="button" id="offer-cancel">取消</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const state = {
+  overview: null,
+  raw: [],
+  content: [],
+  tab: "raw",
+  query: "",
+  jobId: null,
+  cursor: 0,
+  log: [],
+  pollTimer: null,
+  selected: null,
+  offers: [],
+  offerMeta: null,
+  offersLoaded: false,
+  editingSlug: null,
+};
+
+const $ = (id) => document.getElementById(id);
+
+async function api(path, options) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...options });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+function esc(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (ch) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[ch]));
+}
+
+function fmtTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString();
+}
+
+function renderChips() {
+  const s = state.overview?.settings || {};
+  const chips = [
+    ["mode", s.mode],
+    ["model", s.model],
+    ["cap", `scrape ${s.scrape_cap ?? "-"} / content ${s.content_cap ?? "-"}`],
+  ];
+  $("chips").innerHTML = chips
+    .filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `<span class="chip">${esc(k)} <b>${esc(v)}</b></span>`)
+    .join("");
+}
+
+function renderOverview() {
+  const c = state.overview?.collection || {};
+  const raw = c.raw || {};
+  const content = c.content || {};
+  const statusCounts = content.status_counts || {};
+  const statusText = Object.entries(statusCounts).map(([k, v]) => `${k}:${v}`).join(" · ") || "—";
+  const cards = [
+    ["采集结果", raw.count ?? 0, raw.generated_at ? `生成于 ${fmtTime(raw.generated_at)}` : "尚未采集"],
+    ["内容条目", content.count ?? 0, statusText],
+    ["数据源", (raw.source_ids || []).length, (raw.source_ids || []).join(", ") || "—"],
+    ["数据目录", "build/data", c.data_dir || ""],
+  ];
+  $("overview").innerHTML = cards
+    .map(([k, v, s]) => `<div class="stat"><div class="k">${esc(k)}</div><div class="v">${esc(v)}</div><div class="s">${esc(s)}</div></div>`)
+    .join("");
+}
+
+function setStatus(status) {
+  const el = $("status");
+  el.className = status ? status.status : "";
+  const label = { running: "运行中", succeeded: "成功", failed: "失败" }[status?.status] || "空闲";
+  const stage = status?.stage ? ` · ${status.stage}` : "";
+  const time = status?.finished_at ? ` · ${fmtTime(status.finished_at)}` : "";
+  el.innerHTML = `<span class="dot"></span>${esc(label + stage + time)}`;
+}
+
+function appendLogs(lines) {
+  if (!lines.length) return;
+  state.log.push(...lines);
+  const log = $("log");
+  log.innerHTML = state.log
+    .map((line) => {
+      const cls = /\[ERROR\]/i.test(line.text) ? "err" : /\[WARNING\]/i.test(line.text) ? "warn" : "";
+      return `<span class="${cls}">${esc(line.text)}</span>`;
+    })
+    .join("\n");
+  if ($("follow").checked) log.scrollTop = log.scrollHeight;
+}
+
+function renderActions(running) {
+  document.querySelectorAll("button[data-stage]").forEach((btn) => {
+    btn.disabled = Boolean(running);
+  });
+}
+
+async function refreshLists() {
+  const [raw, content] = await Promise.all([api("/api/raw"), api("/api/content")]);
+  state.raw = raw.items || [];
+  state.content = content.items || [];
+  renderTable();
+}
+
+function currentRows() {
+  const q = state.query.trim().toLowerCase();
+  if (state.tab === "history") return state.overview?.jobs || [];
+  if (state.tab === "offers") {
+    if (!q) return state.offers;
+    return state.offers.filter((row) =>
+      [row.slug, row.destination, row.status, (row.geo || []).join(" "), row.token]
+        .join(" ").toLowerCase().includes(q)
+    );
+  }
+  const rows = state.tab === "raw" ? state.raw : state.content;
+  if (!q) return rows;
+  return rows.filter((row) =>
+    [row.title, row.slug, row.source_id, row.source_url, row.status, row.category, (row.tags || []).join(" ")]
+      .join(" ").toLowerCase().includes(q)
+  );
+}
+
+function renderTable() {
+  const table = $("table");
+  const rows = currentRows();
+  $("count").textContent = `${rows.length} 条`;
+
+  if (state.tab === "history") {
+    $("count").textContent = `${rows.length} 个任务`;
+    table.innerHTML = `
+      <thead><tr><th>阶段</th><th>状态</th><th>模式</th><th>开始</th><th>结束</th><th>退出码</th></tr></thead>
+      <tbody>${rows.length ? rows.map((job) => `
+        <tr>
+          <td>${esc(job.stage)}</td>
+          <td><span class="badge ${job.status === "succeeded" ? "published" : job.status === "failed" ? "draft" : ""}">${esc(job.status)}</span>${job.error ? `<div class="err-text">${esc(job.error)}</div>` : ""}</td>
+          <td>${esc(job.mode || "默认")}</td>
+          <td>${esc(fmtTime(job.started_at))}</td>
+          <td>${esc(fmtTime(job.finished_at))}</td>
+          <td>${esc(job.exit_code ?? "—")}</td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">暂无任务</td></tr>`}</tbody>`;
+    return;
+  }
+
+  if (state.tab === "offers") {
+    const issues = new Map((state.offerMeta?.issues || []).map((item) => [String(item.token), item.errors]));
+    $("count").textContent = `${rows.length} 个主库条目`;
+    table.innerHTML = `
+      <thead><tr><th>token / 产品</th><th>状态</th><th>geo</th><th>destination</th><th>披露</th><th>操作</th></tr></thead>
+      <tbody>${rows.length ? rows.map((row) => {
+        const errors = issues.get(String(row.token)) || [];
+        return `
+        <tr data-offer="${esc(row.token)}">
+          <td><span class="badge">${esc(row.token)}</span><div class="sub">${esc(row.product_name || "")}</div><div class="sub">KV slug: ${esc(row.slug || "—")}</div>${errors.length ? `<div class="err-text">${esc(errors.join("; "))}</div>` : ""}</td>
+          <td><span class="badge ${row.status === "active" ? "published" : row.status === "paused" ? "draft" : ""}">${esc(row.status || "—")}</span></td>
+          <td>${esc((row.geo || []).join(", ") || "—")}</td>
+          <td class="title"><div class="sub">${esc(row.destination)}</div></td>
+          <td>${row.disclosure_required === false ? "否" : "是"}</td>
+          <td><div class="row-actions">
+            <button class="small" data-action="edit" data-slug="${esc(row.slug)}">编辑</button>
+            <button class="small danger" data-action="delete" data-slug="${esc(row.slug)}">删除</button>
+          </div></td>
+        </tr>`;
+      }).join("") : `<tr><td colspan="6" class="empty">还没有 offer，点「新增 Offer」创建第一条</td></tr>`}</tbody>`;
+    return;
+  }
+
+  if (state.tab === "raw") {
+    table.innerHTML = `
+      <thead><tr><th>标题</th><th>来源</th><th>分类</th><th>抓取时间</th></tr></thead>
+      <tbody>${rows.length ? rows.map((row) => `
+        <tr data-kind="raw" data-index="${row.index}" class="${state.selected === `raw-${row.index}` ? "selected" : ""}">
+          <td class="title">${esc(row.title)}<div class="sub">${esc(row.source_url)}</div></td>
+          <td><span class="badge">${esc(row.source_id || "—")}</span></td>
+          <td>${esc(row.category || "—")}</td>
+          <td>${esc(fmtTime(row.retrieved_at))}</td>
+        </tr>`).join("") : `<tr><td colspan="4" class="empty">还没有采集结果，先点「发起采集」</td></tr>`}</tbody>`;
+  } else {
+    table.innerHTML = `
+      <thead><tr><th>标题</th><th>状态</th><th>字数</th><th>分类</th><th>更新时间</th></tr></thead>
+      <tbody>${rows.length ? rows.map((row) => `
+        <tr data-kind="content" data-index="${row.index}" class="${state.selected === `content-${row.index}` ? "selected" : ""}">
+          <td class="title">${esc(row.title)}<div class="sub">${esc(row.slug)}</div></td>
+          <td><span class="badge ${esc(row.status)}">${esc(row.status)}</span>${row.reviewed ? " ✓" : ""}</td>
+          <td>${esc(row.word_count ?? "—")}</td>
+          <td>${esc(row.category || "—")}</td>
+          <td>${esc(fmtTime(row.updated_at))}</td>
+        </tr>`).join("") : `<tr><td colspan="5" class="empty">还没有内容条目，先点「生成内容」</td></tr>`}</tbody>`;
+  }
+}
+
+async function openDetail(kind, index) {
+  const key = `${kind}-${index}`;
+  if (state.selected === key) {
+    state.selected = null;
+    $("detail").classList.remove("open");
+    renderTable();
+    return;
+  }
+  state.selected = key;
+  renderTable();
+  const { item } = await api(`/api/${kind}/item?index=${index}`);
+  const link = kind === "raw" ? item.source_url : (item.sources?.[0]?.url || "");
+  const meta = kind === "raw"
+    ? [item.source_id, item.category, (item.tags || []).join(", "), fmtTime(item.retrieved_at)]
+    : [item.slug, item.status, `${item.word_count} words`, fmtTime(item.updated_at)];
+  $("detail-meta").innerHTML =
+    meta.filter(Boolean).map(esc).join(" · ") +
+    (link ? ` · <a href="${esc(link)}" target="_blank" rel="noopener noreferrer">${esc(link)}</a>` : "");
+  const body = kind === "raw" ? (item.body || item.summary || "") : (item.body_markdown || "");
+  $("detail-body").textContent = body || "（无正文）";
+  $("detail").classList.add("open");
+  $("detail").scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+async function pollJob() {
+  if (!state.jobId) return;
+  try {
+    const { job } = await api(`/api/jobs/${state.jobId}?cursor=${state.cursor}`);
+    appendLogs(job.lines || []);
+    state.cursor = job.cursor ?? state.cursor;
+    setStatus(job);
+    if (job.status !== "running") {
+      state.jobId = null;
+      clearInterval(state.pollTimer);
+      state.pollTimer = null;
+      renderActions(false);
+      await refreshOverview();
+      await refreshLists();
+    }
+  } catch (err) {
+    appendLogs([{ ts: "", text: `[ERROR] ${err.message}` }]);
+    state.jobId = null;
+    clearInterval(state.pollTimer);
+    state.pollTimer = null;
+  }
+}
+
+async function startJob(stage) {
+  const mode = $("mode").value;
+  try {
+    const { job } = await api("/api/run", { method: "POST", body: JSON.stringify({ stage, mode }) });
+    state.jobId = job.id;
+    state.cursor = 0;
+    state.log = [];
+    $("log").textContent = "";
+    appendLogs([{ ts: "", text: `[console] $ ${job.command.join(" ")}` }, ...(job.lines || [])]);
+    state.cursor = job.cursor ?? 0;
+    setStatus(job);
+    renderActions(true);
+    if (!state.pollTimer) {
+      state.pollTimer = setInterval(pollJob, 1000);
+    }
+  } catch (err) {
+    appendLogs([{ ts: "", text: `[ERROR] ${err.message}` }]);
+  }
+}
+
+function renderOffersHint() {
+  const meta = state.offerMeta;
+  if (!meta) return;
+  const issues = meta.issues || [];
+  const summary = meta.exists
+    ? `${meta.offers.length} 条，更新于 ${fmtTime(meta.updated_at)}`
+    : "文件尚不存在，保存第一条后自动创建";    $("offers-hint").innerHTML =
+    `文件 <code>${esc(meta.path)}</code> · ${esc(summary)}` +
+    (issues.length ? ` · <span class="err-text">${issues.length} 条校验不通过</span>` : "") +
+    " · 这是唯一数据源：改完后请跑 sync-affiliate 重新生成 offers 与 hugo map，再跑 sync-kv 推送。";
+}
+
+function syncTabChrome() {
+  const offersTab = state.tab === "offers";
+  $("new-offer").hidden = !offersTab;
+  $("offers-hint").hidden = !offersTab;
+  $("search").placeholder = offersTab ? "按 slug / 链接 / 状态筛选…" : "按标题 / slug / 来源筛选…";
+}
+
+async function loadOffers() {
+  const data = await api("/api/offers");
+  state.offerMeta = data;
+  state.offers = data.offers || [];
+  state.offersLoaded = true;
+  renderOffersHint();
+  if (state.tab === "offers") renderTable();
+}
+
+function setOfferMessage(text, isError = false) {
+  $("offer-msg").textContent = text || "";
+  $("offer-msg").classList.toggle("error", Boolean(isError));
+}
+
+function openOfferForm(offer) {
+  const select = $("offer-status");
+  const options = state.offerMeta?.status_options || ["active", "paused", "disabled"];
+  select.innerHTML = options.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+
+  state.editingSlug = offer ? offer.token : null;
+  $("offer-title").textContent = offer ? `编辑 ${offer.token}` : "新增主库条目";
+  $("offer-token").value = offer?.token || "";
+  $("offer-product").value = offer?.product_name || "";
+  $("offer-masked").value = offer?.masked_path || "";
+  $("offer-destination").value = offer?.destination || "";
+  $("offer-status").value = offer?.status || "active";
+  $("offer-geo").value = (offer?.geo || []).join(", ");
+  $("offer-disclosure").checked = offer?.disclosure_required !== false;
+  $("offer-error").textContent = "";
+  $("offer-modal").hidden = false;
+  $("offer-slug").focus();
+}
+
+function closeOfferForm() {
+  $("offer-modal").hidden = true;
+  state.editingSlug = null;
+}
+
+async function removeOffer(slug) {
+  if (!window.confirm(`删除 offer ${slug}？文件会先备份为 .bak`)) return;
+  try {
+    const data = await api("/api/offers/delete", { method: "POST", body: JSON.stringify({ slug }) });
+    state.offerMeta = data;
+    state.offers = data.offers || [];
+    renderOffersHint();
+    renderTable();
+    setOfferMessage(`已删除 ${slug}`);
+  } catch (err) {
+    setOfferMessage(err.message, true);
+  }
+}
+
+async function refreshOverview() {
+  state.overview = await api("/api/overview");
+  renderChips();
+  renderOverview();
+  renderActions(state.overview.running);
+  if (state.overview.running && !state.jobId) {
+    const job = state.overview.running;
+    state.jobId = job.id;
+    state.cursor = 0;
+    state.log = [];
+    $("log").textContent = "";
+    setStatus(job);
+    if (!state.pollTimer) state.pollTimer = setInterval(pollJob, 1000);
+  } else if (!state.overview.running) {
+    setStatus(state.overview.jobs?.[0] && state.overview.jobs[0].status !== "running" ? state.overview.jobs[0] : null);
+  }
+  if (state.tab === "history") renderTable();
+}
+
+document.addEventListener("click", (event) => {
+  const stageBtn = event.target.closest("button[data-stage]");
+  if (stageBtn) { startJob(stageBtn.dataset.stage); return; }
+  const tabBtn = event.target.closest("#tabs button");
+  if (tabBtn) {
+    state.tab = tabBtn.dataset.tab;
+    document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b === tabBtn));
+    state.selected = null;
+    $("detail").classList.remove("open");
+    syncTabChrome();
+    renderTable();
+    if (state.tab === "offers" && !state.offersLoaded) {
+      loadOffers().catch((err) => setOfferMessage(err.message, true));
+    }
+    return;
+  }
+  const actionBtn = event.target.closest("button[data-action]");
+  if (actionBtn) {
+    const slug = actionBtn.dataset.slug;
+    if (actionBtn.dataset.action === "edit") {
+      openOfferForm(state.offers.find((offer) => offer.token === slug));
+    } else if (actionBtn.dataset.action === "delete") {
+      removeOffer(slug);
+    }
+    return;
+  }
+  const row = event.target.closest("tbody tr[data-kind]");
+  if (row) openDetail(row.dataset.kind, Number(row.dataset.index));
+});
+
+$("new-offer").addEventListener("click", () => openOfferForm(null));
+$("offer-cancel").addEventListener("click", closeOfferForm);
+$("offer-modal").addEventListener("click", (event) => {
+  if (event.target === $("offer-modal")) closeOfferForm();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !$("offer-modal").hidden) closeOfferForm();
+});  $("offer-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const offer = {
+    token: $("offer-token").value.trim(),
+    product_name: $("offer-product").value.trim(),
+    masked_path: $("offer-masked").value.trim(),
+    destination: $("offer-destination").value.trim(),
+    status: $("offer-status").value,
+    geo: $("offer-geo").value,
+    disclosure_required: $("offer-disclosure").checked,
+  };
+  try {
+    const data = await api("/api/offers", {
+      method: "POST",
+      body: JSON.stringify({ offer, original_slug: state.editingSlug }),
+    });
+    state.offerMeta = data;
+    state.offers = data.offers || [];
+    closeOfferForm();
+    renderOffersHint();
+    renderTable();
+    setOfferMessage(`已保存 ${offer.token}`);
+  } catch (err) {
+    $("offer-error").textContent = err.message;
+  }
+});
+
+$("search").addEventListener("input", (event) => {
+  state.query = event.target.value;
+  renderTable();
+});
+$("refresh").addEventListener("click", async () => {
+  await refreshOverview();
+  await refreshLists();
+});
+$("clear-log").addEventListener("click", () => {
+  state.log = [];
+  $("log").textContent = "";
+});
+
+(async function init() {
+  try {
+    await refreshOverview();
+    await refreshLists();
+    loadOffers().catch((err) => setOfferMessage(err.message, true));
+    const last = state.overview?.jobs?.[0];
+    if (last && last.status !== "running") setStatus(last);
+  } catch (err) {
+    $("overview").innerHTML = `<div class="err-text">${esc(err.message)}</div>`;
+  }
+})();
+</script>
+</body>
+</html>

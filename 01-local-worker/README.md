@@ -54,7 +54,27 @@
 | `sync-affiliate` | `python -m local_worker.pipeline.run sync-affiliate` | 从 `master-affiliate-db.json` 生成 Hugo 脱敏映射 + `affiliate-offers.json` |
 | `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
 | `review` | `python -m local_worker.pipeline.run review` | 人工审核工作流（查看列表、通过审核、驳回） |
+| `serve` | `python -m local_worker.pipeline.run serve` | 启动本地管理面板，用按钮触发上述阶段并浏览采集/内容结果（仅本机访问） |
 | `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`scrape -> content -> validate -> export -> build -> sync-affiliate -> sync-kv` |
+
+## 本地管理面板（serve）
+
+一个开发期用的临时控制台，省得反复手敲命令：
+
+```bash
+cd 01-local-worker
+python -m local_worker.pipeline.run serve          # http://127.0.0.1:8787/
+# 或
+python -m local_worker.server --port 8787
+```
+
+- 按钮触发 `scrape` / `content` / `validate` / `export` / `build`；每次点击都会以**子进程**运行现有 CLI 阶段，日志实时显示在页面上，同一时间只允许一个任务。
+- 右侧可选 `test` / `production` 覆盖本次运行的 `--mode`，留空则用 `app.mode`。
+- 「采集结果」「内容条目」两个表格读取 `build/data/raw_items.json` 与 `content_items.json`，点击行可看完整正文与来源链接。
+- 「联盟 Offer」页管理 `config/master-affiliate-db.json`（唯一数据源）：列表、搜索、新增、编辑、删除。每个条目包含 token、产品名、masked_path、真实联盟链接、状态、geo、披露开关；保存前会校验 token 唯一性、产品名、masked_path 能否推导出 KV slug、http/https 链接、状态、ISO 两位国家码。写入是原子写并自动保留上一版 `master-affiliate-db.json.bak`。
+- 改完 master DB 后，需要依次运行 `sync-affiliate`（重新生成 `config/affiliate-offers.json` 与站点 `affiliate-map.json`）与 `sync-kv`（推送到 Cloudflare KV），面板不会自动触发这两个外部写入。
+- 面板只绑定 `127.0.0.1`，没有登录鉴权，**不要**用 `--host 0.0.0.0` 暴露到公网，也不要部署到服务器；它只是本地便利工具。
+- 任务只存在于内存，重启面板后历史列表清空，但数据文件与日志照旧。
 
 ## 测试 / 生产模式
 

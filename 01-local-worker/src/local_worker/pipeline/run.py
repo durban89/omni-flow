@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import subprocess
 import sys
 from collections import Counter
@@ -37,7 +38,9 @@ load_dotenv()
 
 logger = logging.getLogger("local_worker.pipeline")
 
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
+# `LOCAL_WORKER_ROOT` lets the local console (or tests) point every stage at
+# another checkout while keeping the same installed package.
+PROJECT_ROOT = Path(os.environ.get("LOCAL_WORKER_ROOT") or Path(__file__).resolve().parents[4])
 DEFAULT_SETTINGS = PROJECT_ROOT / "config/settings.yaml"
 
 
@@ -57,7 +60,6 @@ def build_parser() -> argparse.ArgumentParser:
         "stage",
         choices=[
             "sync-affiliate",
-            "sync-affilicate",  # backwards-compatible alias
             "scrape",
             "content",
             "export",
@@ -65,6 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
             "validate",
             "sync-kv",
             "review",
+            "serve",
             "all",
         ],
     )
@@ -77,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--auto-approve", action="store_true", help="Auto-approve eligible drafts")
     parser.add_argument("--dry-run", action="store_true", help="Dry run for sync actions")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose logging")
+
+    # Arguments for the local control panel (serve)
+    parser.add_argument("--host", default="127.0.0.1", help="Bind address for the serve stage")
+    parser.add_argument("--port", type=int, default=8787, help="Port for the serve stage")
 
     # Arguments for review action
     parser.add_argument("--action", choices=["list", "approve", "reject"], default="list")
@@ -519,7 +526,7 @@ def main() -> None:
                 settings["pipeline"] = {}
             settings["pipeline"]["auto_approve"] = True
 
-        if args.stage in {"sync-affiliate", "sync-affilicate"}:
+        if args.stage == "sync-affiliate":
             run_map_affiliate(PROJECT_ROOT, settings, dry_run=args.dry_run)
         elif args.stage == "scrape":
             run_scrape(PROJECT_ROOT, settings)
@@ -533,6 +540,16 @@ def main() -> None:
             run_build(PROJECT_ROOT, settings)
         elif args.stage == "sync-kv":
             run_kv_sync(PROJECT_ROOT, settings, dry_run=args.dry_run)
+        elif args.stage == "serve":
+            from local_worker.server import run_server
+
+            run_server(
+                args.host,
+                args.port,
+                project_root=PROJECT_ROOT,
+                settings_path=settings_path,
+                mode=args.mode,
+            )
         elif args.stage == "review":
             run_review(
                 PROJECT_ROOT,

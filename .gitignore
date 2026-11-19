@@ -18,6 +18,10 @@ node_modules/
 
 config/settings.yaml
 config/affiliate-offers.json
+config/affiliate-offers.json.bak
+config/affiliate-offers.json.tmp
+config/master-affiliate-db.json.bak
+config/master-affiliate-db.json.tmp
 config/affiliate-map.json
 config/master-affiliate-db.json
 

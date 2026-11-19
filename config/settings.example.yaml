@@ -49,11 +49,6 @@ scraper:
       default_tags: ["dynamic", "javascript"]
       timeout_ms: 20000
 
-content:
-  model: "gpt-4o-mini"
-  temperature: 0.3
-  max_words: 1200
-
 cloudflare:
   pages_project: "example-matrix"
   worker_name: "cps-edge-router"
@@ -69,3 +64,6 @@ compliance:
 
 llm:
   enable: true
+  model: "gpt-4o-mini"
+  temperature: 0.3
+  max_words: 1200
