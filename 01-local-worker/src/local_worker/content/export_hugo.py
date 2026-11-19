@@ -10,6 +10,17 @@ import yaml
 from local_worker.models import ContentItem, isoformat
 
 
+def _strip_leading_h1(body: str) -> str:
+    """Drop a leading `# Title`/`## Title` line so the layout owns the only <h1>."""
+    lines = body.strip().splitlines()
+    if lines and lines[0].startswith("# "):
+        rest = lines[1:]
+        while rest and not rest[0].strip():
+            rest.pop(0)
+        return "\n".join(rest)
+    return "\n".join(lines)
+
+
 def _dump_yaml_frontmatter(data: dict[str, Any]) -> str:
     cleaned = {k: v for k, v in data.items() if v is not None and v != "" and v != []}
     text = yaml.safe_dump(cleaned, allow_unicode=True, sort_keys=False).strip()
@@ -40,6 +51,7 @@ def export_to_hugo(
         frontmatter = {
             "title": item.title,
             "date": isoformat(item.published_at or item.updated_at),
+            "lang": item.locale,
             "slug": item.slug,
             "draft": item.status != "published",
             "reviewed": item.reviewed,
@@ -58,10 +70,18 @@ def export_to_hugo(
             },
         }
 
-        content = _dump_yaml_frontmatter(frontmatter) + item.body_markdown.strip() + "\n"
+        body = _strip_leading_h1(item.body_markdown)
+        content = _dump_yaml_frontmatter(frontmatter) + body + "\n"
         dest_file = posts_dir / f"{item.slug}.md"
         dest_file.write_text(content, encoding="utf-8")
         written_files.append(dest_file)
+
+    # Drop posts that no longer exist in the dataset, so stale pages never ship.
+    expected = {path.name for path in written_files}
+    for stale in posts_dir.glob("*.md"):
+        if stale.name in expected or stale.name.startswith("_"):
+            continue
+        stale.unlink()
 
     # Also save data file for data-driven templates
     data_file = data_dir / "content_items.json"

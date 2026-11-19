@@ -1,17 +1,67 @@
 {{ define "main" }}
-  <article>
-    <h1>{{ .Title }}</h1>
-    <p>{{ .Description }}</p>
-    {{ .Content }}
-    {{ with .Params.sources }}
-      <section>
-        <h2>Sources</h2>
-        <ul>
-          {{ range . }}
-            <li>{{ . }}</li>
+  <article class="article">
+    <div class="wrap article-wrap">
+      {{ $isPost := eq .Section "posts" }}
+      <ol class="breadcrumb">
+        <li><a href="{{ "/" | relLangURL }}">Home</a></li>
+        {{ if $isPost }}
+          <li aria-hidden="true">/</li>
+          <li><a href="{{ "/posts/" | relLangURL }}">Guides</a></li>
+        {{ end }}
+      </ol>
+
+      <header class="article-head">
+        {{ with .Params.category }}<span class="chip">{{ . }}</span>{{ end }}
+        <h1>{{ .Title }}</h1>
+        {{ with .Description }}<p class="article-lede">{{ . }}</p>{{ end }}
+        <div class="article-meta">
+          {{ if $isPost }}
+            {{ with .Date }}<time datetime="{{ .Format "2006-01-02" }}">{{ .Format "Jan 2, 2006" }}</time>{{ end }}
+            <span>{{ .ReadingTime }} min read</span>
+            {{ with .Lastmod }}{{ if ne (.Format "2006-01-02") ($.Date.Format "2006-01-02") }}<span>Updated {{ .Format "Jan 2, 2006" }}</span>{{ end }}{{ end }}
+          {{ else }}
+            {{ with .Lastmod }}<span>Last updated {{ .Format "Jan 2, 2006" }}</span>{{ end }}
           {{ end }}
-        </ul>
-      </section>
-    {{ end }}
+        </div>
+      </header>
+
+      {{ if gt (len .TableOfContents) 40 }}
+        <aside class="toc" aria-label="On this page">
+          <p class="toc-title">On this page</p>
+          {{ .TableOfContents }}
+        </aside>
+      {{ end }}
+
+      <div class="prose">
+        {{ .Content }}
+      </div>
+
+      {{ if $isPost }}
+        <p class="article-note">Educational information only — not medical advice. See our
+          <a href="{{ "/disclaimer/" | relLangURL }}">Medical &amp; Affiliate Disclaimer</a>.</p>
+      {{ end }}
+
+      {{ with .Params.sources }}
+        <section class="sources" aria-label="Sources">
+          <h2>Sources</h2>
+          <ul>
+            {{ range . }}
+              <li><a href="{{ . }}" rel="nofollow noopener" target="_blank">{{ . }}</a></li>
+            {{ end }}
+          </ul>
+        </section>
+      {{ end }}
+
+      {{ if and $isPost (or .NextInSection .PrevInSection) }}
+        <nav class="pager" aria-label="More guides">
+          {{ with .PrevInSection }}
+            <a href="{{ .RelPermalink }}"><span>Previous</span>{{ .Title }}</a>
+          {{ end }}
+          {{ with .NextInSection }}
+            <a href="{{ .RelPermalink }}"><span>Next</span>{{ .Title }}</a>
+          {{ end }}
+        </nav>
+      {{ end }}
+    </div>
   </article>
 {{ end }}

@@ -206,35 +206,42 @@ class ContentGenerator:
                 '{{< affiliate name="TOKEN" >}}.\n'
                 "3. Never invent tokens that are not on the allowlist.\n"
                 "4. Return JSON only with keys: title, summary, body_markdown.\n"
-                "   - title: an original Chinese headline (Simplified Chinese, <= 35 characters, "
-                "no site names or publisher names).\n\n"
+                "   - title: an original English headline (<= 65 characters, sentence case, "
+                "contains the main search keyword, no site or publisher names).\n"
+                "   - summary: 120-155 characters, plain English, no clickbait.\n\n"
                 "Allowlisted product tokens:\n" + "\n".join(token_lines) + "\n\n"
-                "body_markdown structure: # 标题, ## 现象, ## 生理背景, "
-                "## 推荐解决方案 (embed the shortcode here). Section headings must be Simplified Chinese."
+                "body_markdown structure: # Title, ## The Issue, ## Biological Background, "
+                "## Recommended Solution (embed the shortcode here). Section headings must be "
+                "exactly these English headings."
             )
         else:
             affiliate_rules = (
                 "2. Do not include any affiliate shortcode; no product tokens are available.\n"
                 "3. Return JSON only with keys: title, summary, body_markdown.\n"
-                "   - title: an original Chinese headline (Simplified Chinese, <= 35 characters, "
-                "no site names or publisher names).\n\n"
-                "body_markdown structure: # 标题, ## 现象, ## 生理背景, "
-                "## 推荐解决方案 (general, non-commercial guidance). "
-                "Section headings must be Simplified Chinese."
+                "   - title: an original English headline (<= 65 characters, sentence case, "
+                "contains the main search keyword, no site or publisher names).\n"
+                "   - summary: 120-155 characters, plain English, no clickbait.\n\n"
+                "body_markdown structure: # Title, ## The Issue, ## Biological Background, "
+                "## Recommended Solution (general, non-commercial guidance). "
+                "Section headings must be exactly these English headings."
             )
 
         system_prompt = (
-            "You are a professional sexual-health education writer. "
-            "Write an academic, SEO-safe educational article based on the user concern.\n\n"
+            "You are a professional sexual-health writer for an English-language consumer "
+            "health site read by audiences in the US, UK, Canada, Australia, Hong Kong and "
+            "Taiwan. Write an educational, SEO-safe article answering the reader's concern.\n\n"
             "Hard rules:\n"
-            "1. Use clinical, non-vulgar language only.\n"
+            "1. Use clinical, non-vulgar language only; this is health education, not erotica.\n"
             f"{affiliate_rules}"
-            "5. Write the article in Simplified Chinese (简体中文).\n"
+            "5. Write in natural English with US spelling. Never output Chinese characters.\n"
+            "6. At least 600 words. No individualized medical diagnosis; point readers to a "
+            "clinician where it matters.\n"
+            "7. Do not copy, quote, or closely paraphrase third-party text.\n"
         )
         user_prompt = (
-            f"User question: {raw.title}\n"
-            f"User description: {raw.body[:3000]}\n"
-            "Write a complete educational review article as JSON."
+            f"Reader question: {raw.title}\n"
+            f"Context: {raw.body[:3000]}\n"
+            "Write a complete educational article as JSON."
         )
 
         content = self._chat_completion(system_prompt, user_prompt)
@@ -248,16 +255,19 @@ class ContentGenerator:
     def _call_llm(self, raw: RawItem) -> tuple[str, str, str]:
         is_topic_lead = self._is_topic_lead(raw)
         system_prompt = (
-            "You are an expert editorial reviewer for an authoritative buying guide and CPS product matrix. "
-            "Write a structured, objective, and engaging product review or buyer's guide based on the provided source information. "
-            "Requirements:\n"
-            "- Write in clean Markdown.\n"
-            "- Minimum 350 words.\n"
-            "- Include sections: ## 概览与核心特性, ## 深度分析, ## 优缺点, ## 购买建议.\n"
+            "You are an expert editorial reviewer for an authoritative English-language buying "
+            "guide and CPS product matrix aimed at readers in the US, UK, Canada, Australia, "
+            "Hong Kong and Taiwan. Write a structured, objective, and engaging buyer's guide "
+            "from the provided source information. Requirements:\n"
+            "- Write in clean Markdown, in English with US spelling.\n"
+            "- Minimum 500 words.\n"
+            "- Include sections: ## Overview & Key Features, ## In-Depth Analysis, "
+            "## Pros & Cons, ## Buying Advice.\n"
             "- Maintain strict compliance: no false claims, no cloaking, clear editorial value.\n"
-            "- Write in Simplified Chinese (简体中文).\n"
             "- Return JSON with keys 'title', 'summary' and 'body_markdown'. "
-            "'title' is an original Chinese headline (<= 35 characters, no site names)."
+            "'title' is an original English headline (<= 65 characters, sentence case, "
+            "contains the main search keyword, no site or publisher names). "
+            "'summary' is 120-155 characters of plain English."
         )
         if is_topic_lead:
             system_prompt += (

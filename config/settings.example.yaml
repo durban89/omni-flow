@@ -1,7 +1,7 @@
 app:
-  site_name: "OmniFlow"
-  base_url: "https://example.com"
-  default_locale: "en"
+  site_name: "CondomIQ"
+  base_url: "https://condomiq.com"
+  default_locale: "en-US"
 
 pipeline:
   output_dir: "01-local-worker/build/public"

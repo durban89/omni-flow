@@ -47,6 +47,58 @@ def test_export_to_hugo(tmp_path: Path) -> None:
     assert "reviewed: true" in content
     assert "## Features" in content
 
+    assert "lang: en" in content
+
     # Verify site/data/content_items.json
     data_file = site_dir / "data" / "content_items.json"
     assert data_file.exists()
+
+
+def _item(**overrides: object) -> ContentItem:
+    now = utc_now()
+    values: dict[str, object] = {
+        "id": "abc1234567890123",
+        "slug": "sample-post",
+        "title": "示例标题",
+        "summary": "摘要",
+        "body_markdown": "# 示例标题\n\n正文段落。",
+        "word_count": 10,
+        "locale": "zh-CN",
+        "category": "health",
+        "content_rating": "general",
+        "status": "draft",
+        "reviewed": False,
+        "updated_at": now,
+        "seo": SEO(title="示例标题", description="摘要", noindex=True),
+        "tags": ("health",),
+    }
+    values.update(overrides)
+    return ContentItem(**values)  # type: ignore[arg-type]
+
+
+def test_export_strips_duplicate_h1_and_records_locale(tmp_path: Path) -> None:
+    site_dir = tmp_path / "site"
+
+    written = export_to_hugo([_item()], site_dir)
+
+    content = written[0].read_text(encoding="utf-8")
+    body = content.split("---", 2)[2]
+    assert "# 示例标题" not in body
+    assert "正文段落。" in body
+    assert "lang: zh-CN" in content
+
+
+def test_export_prunes_posts_missing_from_dataset(tmp_path: Path) -> None:
+    site_dir = tmp_path / "site"
+    posts_dir = site_dir / "content" / "posts"
+    posts_dir.mkdir(parents=True)
+    stale = posts_dir / "stale-post.md"
+    stale.write_text("---\ntitle: Stale\n---\n", encoding="utf-8")
+    keep = posts_dir / "_index.md"
+    keep.write_text("---\ntitle: Posts\n---\n", encoding="utf-8")
+
+    export_to_hugo([_item()], site_dir)
+
+    assert not stale.exists()
+    assert keep.exists()
+    assert (posts_dir / "sample-post.md").exists()

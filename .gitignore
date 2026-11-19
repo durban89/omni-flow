@@ -33,4 +33,5 @@ config/master-affiliate-db.json
 03-distribution/site/hugo_stats.json
 03-distribution/site/data/affiliate-map.json
 
+.hugo_build.lock
 

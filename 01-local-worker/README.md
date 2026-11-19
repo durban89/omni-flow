@@ -111,9 +111,19 @@ python -m local_worker.pipeline.run review --action reject --target example-buyi
 
 `content:` 段（`model`、`temperature`、`max_words`、`timeout_seconds`）与 `llm:` 段会合并为一份 LLM 配置，`llm:` 中的同名键优先；`enable` 也接受 `enabled` 写法，缺省为关闭。只有 `llm.enable` 为真且环境中存在 `OPENAI_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` 之一时才会调用模型，否则使用模板生成。`category` 为 `health`、`medical` 或 `wellness` 的条目会走健康内容提示词，并只允许使用 master DB 中处于启用状态的联盟短代码。
 
-模型会同时返回 `title`，生成的条目优先用它作为标题（选题线索的标题常常只是站点名，例如「衛生福利部食品藥物管理署」）；去重 id 仍由源 URL + 线索标题派生，所以改标题不会造成重复生成。中文站点的 `app.default_locale` 建议设为 `zh-CN`。
+模型会同时返回 `title`，生成的条目优先用它作为标题（选题线索的标题常常只是站点名，例如「衛生福利部食品藥物管理署」）；去重 id 仍由源 URL + 线索标题派生，所以改标题不会造成重复生成。
+
+**语言**：站点的目标读者是海外英文市场（US / UK / CA / AU，兼及 HK / TW 的英文读者），因此 `app.default_locale` 为 `en-US`，提示词要求模型输出英文标题（≤ 65 字符、含主关键词、不出现站点名）、120–155 字符的英文 summary，以及固定的英文章节：健康类 `## The Issue` / `## Biological Background` / `## Recommended Solution`，导购类 `## Overview & Key Features` / `## In-Depth Analysis` / `## Pros & Cons` / `## Buying Advice`。
 
 **LLM 失败时的行为**：普通源（RSS / JSON / 动态页）会退回模板生成；`topic` 选题线索是纯 LLM 生成的，失败时**不写入** `content_items.json`（模板骨架是英文，写进去还会占住 id 导致永远不再重试），只记录 warning 并在下次运行 `content` 时自动重试。此时若没有新条目，`content_items.json` 不会被重写。
+
+## SEO 输出
+
+`build` 阶段会把 `config/settings.yaml` 的 `app.base_url` 作为 `--baseURL` 传给 Hugo，canonical、`og:url` 与 `sitemap.xml` 都用它拼绝对地址——**上线前把 `app.base_url` 改成真实域名**（`hugo.toml` 里的 `baseURL` 只是本地预览的占位值）。
+
+`layouts/_default/baseof.html` 为每个页面输出：canonical（优先 `seo.canonical`）、`robots`（`draft` 或 `seo.noindex` 为真时 `noindex, nofollow`）、OpenGraph / Twitter 卡片，文章页额外输出 schema.org `Article` JSON-LD。页面 `lang` 取条目的 `locale`，回落到站点 `locale`（`en-US`）。`layouts/robots.txt` 输出带绝对地址的 `Sitemap:` 行。
+
+导出时会把正文开头的 `# 标题` 去掉（由模板输出唯一的 `<h1>`），并删除 `content/posts/` 中已不在数据集里的 md（`_index.md` 保留），避免孤儿页面随站点上线。
 
 ## 数据源适配器配置
 
@@ -130,11 +140,11 @@ scraper:
       type: rss
       enabled: true
       url: "https://example.com/rss.xml"
-    - id: topic_health_zh
+    - id: topic_health_en
       type: topic_search
       enabled: true
       queries:
-        - "避孕套 选购 尺寸 材质"
+        - "condom size chart how to measure fit"
       num_results: 8
       default_category: "health"
       default_tags: ["topic", "health"]

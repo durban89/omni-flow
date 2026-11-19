@@ -1,6 +1,7 @@
-baseURL = "https://example.com/"
-languageCode = "en-us"
-title = "OmniFlow"
+# 生产域名：构建时由 config/settings.yaml 的 app.base_url 通过 --baseURL 覆盖。
+baseURL = "https://condomiq.com/"
+locale = "en-US"
+title = "CondomIQ"
 enableRobotsTXT = true
 disableKinds = ["taxonomy", "term"]
 
@@ -12,5 +13,10 @@ disableKinds = ["taxonomy", "term"]
     unsafe = false
 
 [params]
-  description = "Independent product research and buying guides."
+  description = "Evidence-based condom and sexual health guidance: sizing, materials, correct use, and what to do when things go wrong."
+  tagline = "Condom & sexual health guides"
+  heroSubtitle = "Evidence-based guides on sizing, materials, correct use and what to do when things go wrong — written for readers in the US, UK, Canada, Australia, Hong Kong and Taiwan."
   affiliateDisclosure = "This site contains affiliate links. We may earn a commission at no extra cost to you."
+  # Placeholder inboxes — change these in one place, no templates or pages to edit.
+  contactEmail = "hello@condomiq.com"
+  privacyEmail = "privacy@condomiq.com"

@@ -1,0 +1,13 @@
+{{- /* Renders a mailto link from site params so addresses live in hugo.toml only.
+       Usage: {{< email contact >}} or {{< email privacy "Privacy team" >}} */ -}}
+{{- $key := .Get 0 | default "contact" -}}
+{{- $addresses := dict
+  "contact" site.Params.contactEmail
+  "privacy" site.Params.privacyEmail
+-}}
+{{- $addr := index $addresses $key -}}
+{{- if $addr -}}
+  <a href="mailto:{{ $addr }}">{{ .Get 1 | default $addr }}</a>
+{{- else -}}
+  {{- warnf "email shortcode: site.Params.%sEmail is not set in hugo.toml" $key -}}
+{{- end -}}

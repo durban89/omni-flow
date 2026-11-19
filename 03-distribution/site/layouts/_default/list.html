@@ -1,9 +1,23 @@
 {{ define "main" }}
-  <h1>{{ .Title }}</h1>
-  {{ .Content }}
-  <ul>
-    {{ range .Pages }}
-      <li><a href="{{ .RelPermalink }}">{{ .Title }}</a></li>
-    {{ end }}
-  </ul>
+  <section class="hero">
+    <div class="wrap">
+      <p class="hero-eyebrow">{{ len .Pages }} guide{{ if ne (len .Pages) 1 }}s{{ end }}</p>
+      <h1>{{ .Title }}</h1>
+      {{ with .Content }}<div class="hero-body">{{ . }}</div>{{ else }}<p>{{ site.Params.description }}</p>{{ end }}
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      {{ with .Pages }}
+        <div class="card-grid">
+          {{ range . }}
+            {{ partial "post-card.html" . }}
+          {{ end }}
+        </div>
+      {{ else }}
+        <p>No guides here yet.</p>
+      {{ end }}
+    </div>
+  </section>
 {{ end }}

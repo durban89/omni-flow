@@ -390,17 +390,24 @@ def run_build(root: Path, settings: dict[str, Any]) -> None:
     if content_path.exists():
         run_export(root, settings)
 
+    app = _section(settings, "app")
+    base_url = str(app.get("base_url") or "").strip()
+    hugo_args = [
+        hugo,
+        "--source",
+        str(site_dir),
+        "--minify",
+        "--destination",
+        str(output_dir),
+    ]
+    # Absolute URLs (canonical, sitemap, og:url) must come from the deploy config.
+    if base_url:
+        hugo_args.extend(["--baseURL", base_url if base_url.endswith("/") else f"{base_url}/"])
+
     output_dir.mkdir(parents=True, exist_ok=True)
     try:
         subprocess.run(
-            [
-                hugo,
-                "--source",
-                str(site_dir),
-                "--minify",
-                "--destination",
-                str(output_dir),
-            ],
+            hugo_args,
             check=True,
             cwd=root,
         )

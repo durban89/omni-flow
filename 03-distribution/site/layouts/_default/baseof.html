@@ -1,21 +1,108 @@
 <!doctype html>
-<html lang="{{ site.LanguageCode }}">
+<html lang="{{ .Params.lang | default site.Language.Locale }}">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    {{ $title := .Title }}
+    {{ $description := .Description | default site.Params.description }}
+    {{ $canonical := .Permalink }}
+    {{ $noindex := .Params.seo.noindex }}
+    {{ $ogImage := "og-default.png" | absURL }}
+    {{ with .Params.seo }}{{ with .canonical }}{{ $canonical = . }}{{ end }}{{ end }}
+    {{ if .Draft }}{{ $noindex = true }}{{ end }}
     <title>{{ if .Title }}{{ .Title }} | {{ end }}{{ site.Title }}</title>
-    <meta name="description" content="{{ with .Description }}{{ . }}{{ else }}{{ site.Params.description }}{{ end }}">
+    <meta name="description" content="{{ $description }}">
+    <link rel="canonical" href="{{ $canonical }}">
+    {{ if $noindex }}<meta name="robots" content="noindex, nofollow">{{ else }}<meta name="robots" content="index, follow">{{ end }}
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0d1216" media="(prefers-color-scheme: dark)">
+    <link rel="icon" href="{{ "favicon.ico" | relURL }}" sizes="48x48">
+    <link rel="icon" href="{{ "favicon.svg" | relURL }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ "apple-touch-icon.png" | relURL }}">
+    <link rel="manifest" href="{{ "site.webmanifest" | relURL }}">
+    <meta property="og:type" content="{{ if .IsPage }}article{{ else }}website{{ end }}">
+    <meta property="og:title" content="{{ $title }}">
+    <meta property="og:description" content="{{ $description }}">
+    <meta property="og:url" content="{{ $canonical }}">
+    <meta property="og:site_name" content="{{ site.Title }}">
+    <meta property="og:locale" content="{{ replace (.Params.lang | default site.Language.Locale) "-" "_" }}">
+    <meta property="og:image" content="{{ $ogImage }}">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="{{ site.Title }} — {{ site.Params.tagline }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{ $title }}">
+    <meta name="twitter:description" content="{{ $description }}">
+    <meta name="twitter:image" content="{{ $ogImage }}">
+    {{ if .IsPage }}
+      {{ $schema := dict
+        "@context" "https://schema.org"
+        "@type" "Article"
+        "headline" $title
+        "description" $description
+        "inLanguage" (.Params.lang | default site.Language.Locale)
+        "datePublished" (.PublishDate.Format "2006-01-02T15:04:05Z07:00")
+        "dateModified" (.Lastmod.Format "2006-01-02T15:04:05Z07:00")
+        "image" $ogImage
+        "mainEntityOfPage" (dict "@type" "WebPage" "@id" $canonical)
+        "publisher" (dict "@type" "Organization" "name" site.Title)
+      }}
+      <script type="application/ld+json">{{ $schema | jsonify | safeJS }}</script>
+    {{ end }}
+    {{ with resources.Get "css/main.css" }}
+      {{ $css := . | minify | fingerprint }}
+      <link rel="stylesheet" href="{{ $css.RelPermalink }}" integrity="{{ $css.Data.Integrity }}">
+    {{ end }}
+    {{ with .OutputFormats.Get "rss" }}<link rel="alternate" type="application/rss+xml" href="{{ .RelPermalink }}" title="{{ site.Title }}">{{ end }}
     {{ block "head" . }}{{ end }}
   </head>
-  <body>
-    <header>
-      <a href="{{ "/" | relURL }}">{{ site.Title }}</a>
+  <body class="{{ if .IsHome }}page-home{{ else if .IsPage }}page-single{{ else }}page-list{{ end }}">
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+      <div class="wrap header-inner">
+        <a class="brand" href="{{ "/" | relLangURL }}">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 512 512" width="34" height="34" role="presentation" focusable="false">
+              <rect width="512" height="512" rx="116" fill="currentColor"/>
+              <g fill="none" stroke="#fff" stroke-linejoin="round">
+                <path d="M256 100 394 150v112c0 82-60 140-138 166-78-26-138-84-138-166V150Z" stroke-width="30"/>
+                <path d="M196 256l40 40 82-84" stroke-width="34" stroke-linecap="round"/>
+              </g>
+            </svg>
+          </span>
+          <span>
+            <span class="brand-name">{{ site.Title }}</span>
+            <span class="brand-tag">{{ site.Params.tagline }}</span>
+          </span>
+        </a>
+        <nav class="site-nav" aria-label="Primary">
+          <a href="{{ "/posts/" | relLangURL }}">Guides</a>
+          <a href="{{ "/about/" | relLangURL }}">About</a>
+          <a href="{{ "/index.xml" | relLangURL }}">RSS</a>
+        </nav>
+      </div>
     </header>
-    <main>
+
+    <main id="main">
       {{ block "main" . }}{{ end }}
     </main>
-    <footer>
-      <p>{{ site.Params.affiliateDisclosure }}</p>
+
+    <footer class="site-footer">
+      <div class="wrap footer-inner">
+        <div class="footer-brand">
+          <p class="footer-name">{{ site.Title }}</p>
+          <p>{{ site.Params.affiliateDisclosure }}</p>
+        </div>
+        <nav class="footer-nav" aria-label="Site information">
+          <a href="{{ "/about/" | relLangURL }}">About</a>
+          <a href="{{ "/privacy/" | relLangURL }}">Privacy Policy</a>
+          <a href="{{ "/disclaimer/" | relLangURL }}">Medical &amp; Affiliate Disclaimer</a>
+          {{ with site.Params.contactEmail }}<a href="mailto:{{ . }}">Contact</a>{{ end }}
+        </nav>
+        <p class="footer-legal">&copy; {{ now.Year }} {{ site.Title }}. Educational information only — not a substitute for professional medical advice. Intended for adults 18+.</p>
+      </div>
     </footer>
   </body>
 </html>

@@ -1,19 +1,51 @@
 {{ define "main" }}
-  <h1>{{ site.Title }}</h1>
-  {{ .Content }}
+  {{ $posts := where site.RegularPages "Section" "posts" }}
+  <section class="hero">
+    <div class="wrap">
+      <p class="hero-eyebrow">Condoms, explained without the noise</p>
+      <h1>Clear answers about fit, materials and safer sex.</h1>
+      <p>{{ site.Params.heroSubtitle | default site.Params.description }}</p>
+      <div class="hero-actions">
+        <a class="button" href="{{ "/posts/" | relLangURL }}">Browse all guides</a>
+        <a class="button button--ghost" href="{{ "/index.xml" | relLangURL }}">Get updates by RSS</a>
+      </div>
+    </div>
+  </section>
 
-  <section class="posts-list">
-    <h2>Articles & Guides</h2>
-    <ul>
-      {{ range site.RegularPages }}
-        <li>
-          <a href="{{ .RelPermalink }}">{{ .Title }}</a>
-          {{ with .Date }}<time>{{ .Format "2006-01-02" }}</time>{{ end }}
-          <p>{{ .Description }}</p>
-        </li>
+  <section class="section">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Latest guides</h2>
+        <a href="{{ "/posts/" | relLangURL }}">See all &rarr;</a>
+      </div>
+      {{ with $posts }}
+        <div class="card-grid">
+          {{ range first 6 . }}
+            {{ partial "post-card.html" . }}
+          {{ end }}
+        </div>
       {{ else }}
-        <p>No published articles yet.</p>
+        <p>No guides published yet.</p>
       {{ end }}
-    </ul>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="wrap">
+      <div class="trust">
+        <div>
+          <h3>Evidence first</h3>
+          <p>Every claim is traced to public-health sources such as the CDC, WHO and peer-reviewed journals.</p>
+        </div>
+        <div>
+          <h3>No scare tactics</h3>
+          <p>Plain, clinical language about what works, what fails, and why — no shaming, no hype.</p>
+        </div>
+        <div>
+          <h3>Independently written</h3>
+          <p>Guides are written from scratch. Some outbound product links are affiliate links, clearly marked.</p>
+        </div>
+      </div>
+    </div>
   </section>
 {{ end }}

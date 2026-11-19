@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="CondomIQ">
+  <rect width="512" height="512" rx="116" fill="#0f766e"/>
+  <g fill="none" stroke="#fff" stroke-linejoin="round">
+    <path d="M256 100 394 150v112c0 82-60 140-138 166-78-26-138-84-138-166V150Z" stroke-width="30"/>
+    <path d="M196 256l40 40 82-84" stroke-width="34" stroke-linecap="round"/>
+  </g>
+</svg>

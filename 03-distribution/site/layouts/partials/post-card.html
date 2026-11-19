@@ -1,0 +1,12 @@
+{{- $page := . -}}
+<article class="post-card">
+  <a class="post-card__link" href="{{ $page.RelPermalink }}">
+    <div class="post-card__meta">
+      {{ with $page.Params.category }}<span class="chip">{{ . }}</span>{{ end }}
+      {{ with $page.Date }}<time datetime="{{ .Format "2006-01-02" }}">{{ .Format "Jan 2, 2006" }}</time>{{ end }}
+    </div>
+    <h3 class="post-card__title">{{ $page.Title }}</h3>
+    {{ with $page.Description }}<p class="post-card__excerpt">{{ . }}</p>{{ end }}
+    <span class="post-card__more">Read guide &rarr;</span>
+  </a>
+</article>
