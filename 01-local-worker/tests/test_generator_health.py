@@ -60,7 +60,7 @@ def test_content_generator_health_llm_flow(mock_count_words: MagicMock, mock_pos
 
         # Activating runtime switch hook
         generator.set_health_mode(True)
-        body, summary = generator.generate(raw)
+        _, body, summary = generator.generate(raw)
 
     # 5. Asset parsed results are successfully mapped to LLM content
     assert "Professional Health Overview" in body
@@ -104,7 +104,7 @@ def test_health_llm_without_allowlisted_tokens_skips_shortcode(
         tmp_path / "missing-master-db.json"
     )
     with patch.dict("os.environ", {"OPENAI_API_KEY": "mock-api-key"}):
-        body, _ = generator.set_health_mode(True).generate(raw)
+        _, body, _ = generator.set_health_mode(True).generate(raw)
 
     system_prompt = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
     assert "Do not include any affiliate shortcode" in system_prompt
@@ -139,7 +139,7 @@ def test_health_template_prefers_item_affiliate_slug(tmp_path: Path) -> None:
         "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": ""}
     ):
         generator = ContentGenerator({}).set_master_db_path(db_path).set_health_mode(True)
-        body, _ = generator.generate(raw)
+        _, body, _ = generator.generate(raw)
 
     assert '{{< affiliate name="tok-b" >}}' in body
 

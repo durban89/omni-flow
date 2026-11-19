@@ -96,8 +96,8 @@ class ContentGenerator:
             }
         return active_tokens
 
-    def generate(self, raw: RawItem) -> tuple[str, str]:
-        """Return (body_markdown, summary).
+    def generate(self, raw: RawItem) -> tuple[str, str, str]:
+        """Return (title, body_markdown, summary).
 
         Falls back to the editorial template on LLM failure, except for topic
         leads: those are LLM-only, so a failure raises LLMGenerationError and the
@@ -154,16 +154,18 @@ class ContentGenerator:
             raise ValueError("LLM returned empty content")
         return content
 
-    def _parse_llm_json(self, content: str) -> tuple[str, str]:
+    def _parse_llm_json(self, content: str) -> tuple[str, str, str]:
         # Models sometimes emit raw newlines inside string values.
         parsed = json.loads(content, strict=False)
         if not isinstance(parsed, dict):
             raise TypeError("LLM JSON root must be an object")
         body = str(parsed.get("body_markdown") or "").strip()
         summary = str(parsed.get("summary") or "").strip() or truncate(body, 200)
+        # Optional: models write a better headline than the raw lead title.
+        title = " ".join(str(parsed.get("title") or "").split()).lstrip("# ").strip()
         if not body:
             raise ValueError("LLM JSON missing body_markdown")
-        return body, summary
+        return title[:120], body, summary
 
     def _enforce_affiliate_tokens(self, body: str) -> str:
         """Ensure every affiliate shortcode name is in the active allowlist."""
@@ -181,13 +183,15 @@ class ContentGenerator:
             )
         return body
 
-    def _finalize_llm_body(self, body: str, summary: str) -> tuple[str, str]:
+    def _finalize_llm_body(
+        self, title: str, body: str, summary: str
+    ) -> tuple[str, str, str]:
         body = self._enforce_affiliate_tokens(body)
         if count_words(body) < MIN_LLM_WORDS:
             raise ValueError(
                 f"LLM body too short ({count_words(body)} words, need >= {MIN_LLM_WORDS})"
             )
-        return body, truncate(summary, 280)
+        return title, body, truncate(summary, 280)
 
     def _call_health_llm(self, raw: RawItem) -> tuple[str, str]:
         token_lines = [
@@ -201,17 +205,22 @@ class ContentGenerator:
                 "allowlist below and insert it verbatim as a Hugo shortcode: "
                 '{{< affiliate name="TOKEN" >}}.\n'
                 "3. Never invent tokens that are not on the allowlist.\n"
-                "4. Return JSON only with keys: summary, body_markdown.\n\n"
+                "4. Return JSON only with keys: title, summary, body_markdown.\n"
+                "   - title: an original Chinese headline (Simplified Chinese, <= 35 characters, "
+                "no site names or publisher names).\n\n"
                 "Allowlisted product tokens:\n" + "\n".join(token_lines) + "\n\n"
-                "body_markdown structure: # Title, ## Phenomenon, ## Physiological background, "
-                "## Recommended solutions (embed the shortcode here)."
+                "body_markdown structure: # 标题, ## 现象, ## 生理背景, "
+                "## 推荐解决方案 (embed the shortcode here). Section headings must be Simplified Chinese."
             )
         else:
             affiliate_rules = (
                 "2. Do not include any affiliate shortcode; no product tokens are available.\n"
-                "3. Return JSON only with keys: summary, body_markdown.\n\n"
-                "body_markdown structure: # Title, ## Phenomenon, ## Physiological background, "
-                "## Recommended solutions (general, non-commercial guidance)."
+                "3. Return JSON only with keys: title, summary, body_markdown.\n"
+                "   - title: an original Chinese headline (Simplified Chinese, <= 35 characters, "
+                "no site names or publisher names).\n\n"
+                "body_markdown structure: # 标题, ## 现象, ## 生理背景, "
+                "## 推荐解决方案 (general, non-commercial guidance). "
+                "Section headings must be Simplified Chinese."
             )
 
         system_prompt = (
@@ -229,14 +238,14 @@ class ContentGenerator:
         )
 
         content = self._chat_completion(system_prompt, user_prompt)
-        body, summary = self._parse_llm_json(content)
-        return self._finalize_llm_body(body, summary)
+        title, body, summary = self._parse_llm_json(content)
+        return self._finalize_llm_body(title, body, summary)
 
     def _is_topic_lead(self, raw: RawItem) -> bool:
         """Topic leads carry search metadata only, so the article must be written from scratch."""
         return "topic" in raw.tags
 
-    def _call_llm(self, raw: RawItem) -> tuple[str, str]:
+    def _call_llm(self, raw: RawItem) -> tuple[str, str, str]:
         is_topic_lead = self._is_topic_lead(raw)
         system_prompt = (
             "You are an expert editorial reviewer for an authoritative buying guide and CPS product matrix. "
@@ -244,10 +253,11 @@ class ContentGenerator:
             "Requirements:\n"
             "- Write in clean Markdown.\n"
             "- Minimum 350 words.\n"
-            "- Include sections: ## Overview & Key Features, ## In-Depth Analysis, ## Pros & Cons, ## Buying Recommendation.\n"
+            "- Include sections: ## 概览与核心特性, ## 深度分析, ## 优缺点, ## 购买建议.\n"
             "- Maintain strict compliance: no false claims, no cloaking, clear editorial value.\n"
             "- Write in Simplified Chinese (简体中文).\n"
-            "- Return JSON with keys 'summary' and 'body_markdown'."
+            "- Return JSON with keys 'title', 'summary' and 'body_markdown'. "
+            "'title' is an original Chinese headline (<= 35 characters, no site names)."
         )
         if is_topic_lead:
             system_prompt += (
@@ -265,10 +275,10 @@ class ContentGenerator:
         )
 
         content = self._chat_completion(system_prompt, user_prompt)
-        body, summary = self._parse_llm_json(content)
-        return self._finalize_llm_body(body, summary)
+        title, body, summary = self._parse_llm_json(content)
+        return self._finalize_llm_body(title, body, summary)
 
-    def _template_generate(self, raw: RawItem) -> tuple[str, str]:
+    def _template_generate(self, raw: RawItem) -> tuple[str, str, str]:
         """Editorial structured synthesis ensuring clear sectioning and enough length."""
         title = raw.title.strip()
         category = raw.category.capitalize()
@@ -342,4 +352,4 @@ class ContentGenerator:
             )
 
         full_body = "\n".join(body_parts)
-        return full_body, truncate(summary, 280)
+        return raw.title.strip(), full_body, truncate(summary, 280)

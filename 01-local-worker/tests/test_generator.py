@@ -26,8 +26,9 @@ def test_content_generator_template_fallback() -> None:
         "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": ""}
     ):
         generator = ContentGenerator({"enabled": True, "model": "gpt-4o-mini"})
-        body, summary = generator.generate(raw)
+        title, body, summary = generator.generate(raw)
 
+    assert title == "Best Ergonomic Chair 2026"
     assert "# Best Ergonomic Chair 2026" in body
     assert "## Overview: Office Buying Guide" in body
     assert "## Pros and Cons" in body
@@ -52,7 +53,7 @@ def test_topic_lead_brief_is_not_copied_into_template() -> None:
     with patch.dict(
         "os.environ", {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "LLM_API_KEY": ""}
     ):
-        body, _summary = ContentGenerator({}).generate(raw)
+        _, body, _summary = ContentGenerator({}).generate(raw)
 
     assert "# How to choose the right condom size" in body
     assert "Topic lead:" not in body
@@ -100,7 +101,7 @@ def test_non_topic_item_still_falls_back_when_llm_fails() -> None:
     ):
         generator = ContentGenerator({"enable": True, "model": "free-model"})
         with patch.object(generator, "_chat_completion", side_effect=ValueError("empty")):
-            body, _summary = generator.generate(raw)
+            _, body, _summary = generator.generate(raw)
 
     assert "## Overview: Office Buying Guide" in body
 

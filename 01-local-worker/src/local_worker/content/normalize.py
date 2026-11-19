@@ -85,11 +85,12 @@ def normalize_raw_items(
 
         existing_review = reviews.get(item_id) if reviews else None
 
+        llm_title = ""
         if enable_llm and not existing_review:
             logger.info("[generator] generating content via LLM for item_id: %s", item_id)
             is_health_category = raw.category.strip().lower() in {"health", "medical", "wellness"}
             try:
-                body, summary = generator.set_health_mode(is_health_category).generate(raw)
+                llm_title, body, summary = generator.set_health_mode(is_health_category).generate(raw)
             except LLMGenerationError as exc:
                 # Leave the item out of content_items.json; the next run retries it.
                 logger.warning("[generator] skipping %s, will retry next run: %s", item_id, exc)
@@ -102,7 +103,11 @@ def normalize_raw_items(
                 continue
             summary = clean_summary(raw.summary, body)
 
-        base_slug = slugify(title) or f"item-{item_id[:8]}"
+        # The model writes a real headline; the lead title is often just a site name.
+        # The dedupe id stays derived from the original lead title.
+        display_title = llm_title.strip() or title
+
+        base_slug = slugify(display_title) or f"item-{item_id[:8]}"
         slug = unique_slug(base_slug, used_slugs)
         words = count_words(body)
 
@@ -130,7 +135,7 @@ def normalize_raw_items(
         item = ContentItem(
             id=item_id,
             slug=slug,
-            title=title,
+            title=display_title,
             summary=summary,
             body_markdown=body,
             word_count=words,
@@ -154,7 +159,7 @@ def normalize_raw_items(
             published_at=published_at,
             updated_at=now,
             seo=SEO(
-                title=title,
+                title=display_title,
                 description=truncate(summary, 160),
                 canonical=None,
                 noindex=noindex,

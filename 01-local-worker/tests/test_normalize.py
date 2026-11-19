@@ -2,7 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from local_worker.content.normalize import normalize_raw_items
 from local_worker.errors import LLMGenerationError
-from local_worker.models import RawItem, utc_now
+from local_worker.models import RawItem, content_id, utc_now
 
 SETTINGS = {
     "app": {"default_locale": "en"},
@@ -74,7 +74,7 @@ def test_normalize_passes_merged_llm_settings_to_generator() -> None:
     fake_generator.has_llm_credentials = True
     fake_generator.set_master_db_path.return_value = fake_generator
     fake_generator.set_health_mode.return_value = fake_generator
-    fake_generator.generate.return_value = ("word " * 320, "Generated summary.")
+    fake_generator.generate.return_value = ("Generated Title", "word " * 320, "Generated summary.")
 
     with patch(
         "local_worker.content.normalize.ContentGenerator", return_value=fake_generator
@@ -88,6 +88,39 @@ def test_normalize_passes_merged_llm_settings_to_generator() -> None:
     assert llm_config["enable"] is True
     assert items[0].body_markdown == "word " * 320
 
+
+
+def _generator_returning(result: object) -> MagicMock:
+    fake_generator = MagicMock()
+    fake_generator.has_llm_credentials = True
+    fake_generator.set_master_db_path.return_value = fake_generator
+    fake_generator.set_health_mode.return_value = fake_generator
+    fake_generator.generate.return_value = result
+    return fake_generator
+
+
+def test_normalize_prefers_llm_title_over_lead_title() -> None:
+    settings = {"pipeline": {"max_items_per_run": 10}, "llm": {"enable": True}}
+    fake_generator = _generator_returning(
+        ("避孕套选购指南：尺寸与材质", "word " * 320, "摘要")
+    )
+
+    with patch("local_worker.content.normalize.ContentGenerator", return_value=fake_generator):
+        items = normalize_raw_items([make_raw(title="衛生福利部食品藥物管理署")], settings, "")
+
+    assert items[0].title == "避孕套选购指南：尺寸与材质"
+    # Dedupe id still derives from the source lead title.
+    assert items[0].id == content_id("https://example.com/post", "衛生福利部食品藥物管理署")
+
+
+def test_normalize_falls_back_to_lead_title_when_llm_title_missing() -> None:
+    settings = {"pipeline": {"max_items_per_run": 10}, "llm": {"enable": True}}
+    fake_generator = _generator_returning(("", "word " * 320, "摘要"))
+
+    with patch("local_worker.content.normalize.ContentGenerator", return_value=fake_generator):
+        items = normalize_raw_items([make_raw(title="Lead Title")], settings, "")
+
+    assert items[0].title == "Lead Title"
 
 
 def test_normalize_skips_item_when_llm_generation_fails() -> None:

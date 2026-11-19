@@ -111,6 +111,8 @@ python -m local_worker.pipeline.run review --action reject --target example-buyi
 
 `content:` 段（`model`、`temperature`、`max_words`、`timeout_seconds`）与 `llm:` 段会合并为一份 LLM 配置，`llm:` 中的同名键优先；`enable` 也接受 `enabled` 写法，缺省为关闭。只有 `llm.enable` 为真且环境中存在 `OPENAI_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` 之一时才会调用模型，否则使用模板生成。`category` 为 `health`、`medical` 或 `wellness` 的条目会走健康内容提示词，并只允许使用 master DB 中处于启用状态的联盟短代码。
 
+模型会同时返回 `title`，生成的条目优先用它作为标题（选题线索的标题常常只是站点名，例如「衛生福利部食品藥物管理署」）；去重 id 仍由源 URL + 线索标题派生，所以改标题不会造成重复生成。中文站点的 `app.default_locale` 建议设为 `zh-CN`。
+
 **LLM 失败时的行为**：普通源（RSS / JSON / 动态页）会退回模板生成；`topic` 选题线索是纯 LLM 生成的，失败时**不写入** `content_items.json`（模板骨架是英文，写进去还会占住 id 导致永远不再重试），只记录 warning 并在下次运行 `content` 时自动重试。此时若没有新条目，`content_items.json` 不会被重写。
 
 ## 数据源适配器配置
