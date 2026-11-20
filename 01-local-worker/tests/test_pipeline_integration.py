@@ -139,6 +139,57 @@ def test_run_content_is_incremental_by_id(tmp_path: Path) -> None:
     assert raw_path.exists()
 
 
+def test_scrape_skips_urls_already_generated(tmp_path: Path) -> None:
+    input_path = tmp_path / "input.json"
+    input_path.write_text(
+        json.dumps(
+            {
+                "items": [
+                    {
+                        "title": "First Guide",
+                        "summary": "First summary.",
+                        "url": "https://example.com/first",
+                        "body_markdown": "First body content.",
+                        "category": "guides",
+                    },
+                    {
+                        "title": "Second Guide",
+                        "summary": "Second summary.",
+                        "url": "https://example.com/second",
+                        "body_markdown": "Second body content.",
+                        "category": "guides",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    settings: dict[str, Any] = {
+        "app": {"default_locale": "en"},
+        "pipeline": {"data_dir": str(tmp_path / "data"), "max_items_per_run": 1},
+        "scraper": {
+            "max_items_per_run": 1,
+            "request_delay_ms": 0,
+            "respect_robots_txt": False,
+            "sources": [
+                {"id": "curated", "type": "json_file", "enabled": True, "path": str(input_path)}
+            ],
+        },
+        "compliance": {"default_content_rating": "general"},
+    }
+
+    raw_path = run_scrape(tmp_path, settings)
+    first_raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    assert [item["title"] for item in first_raw["items"]] == ["First Guide"]
+    run_content(tmp_path, settings)
+
+    # The first URL is now in content_items.json, so the next scrape advances.
+    raw_path = run_scrape(tmp_path, settings)
+    second_raw = json.loads(raw_path.read_text(encoding="utf-8"))
+    assert [item["title"] for item in second_raw["items"]] == ["Second Guide"]
+
+
 def test_full_pipeline_with_export_review_and_kv_sync(tmp_path: Path) -> None:
     input_path = tmp_path / "input.json"
     long_body = " ".join(["word"] * 320)

@@ -75,6 +75,71 @@ def test_topic_search_maps_results_without_crawling(monkeypatch: pytest.MonkeyPa
     assert first.body.startswith("Topic lead: ")
 
 
+def test_topic_search_skips_existing_and_continues_queries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    existing_url = "https://news.example.com/already-used"
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        query = json.loads(request.content)["query"]
+        results = {
+            "first query": [
+                {"title": "Already used", "url": existing_url, "text": "Old lead."}
+            ],
+            "second query": [
+                {"title": "Fresh topic", "url": "https://news.example.com/fresh", "text": "New lead."}
+            ],
+        }[query]
+        return httpx.Response(200, json={"results": results})
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {"queries": ["first query", "second query"], "max_items": 5, "max_attempts": 3},
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            exclude_urls=frozenset({existing_url}),
+            max_new_items=1,
+        ),
+    )
+
+    items = source.fetch()
+
+    assert [item.source_url for item in items] == ["https://news.example.com/fresh"]
+    assert len(requests) == 2
+
+
+def test_topic_search_stops_at_max_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    existing_url = "https://news.example.com/already-used"
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(
+            200,
+            json={"results": [{"title": "Old", "url": existing_url, "text": "Old lead."}]},
+        )
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {
+            "queries": ["first query", "second query", "third query"],
+            "max_attempts": 2,
+        },
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            exclude_urls=frozenset({existing_url}),
+            max_new_items=1,
+        ),
+    )
+
+    assert source.fetch() == []
+    assert len(requests) == 2
+
+
 def test_topic_search_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EXA_API_KEY", raising=False)
     source = TopicSearchSource("topic_health_zh", {"query": "condoms"}, _context(_exa_handler([])))

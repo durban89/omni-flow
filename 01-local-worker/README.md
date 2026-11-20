@@ -46,7 +46,7 @@
 
 | 阶段 | 命令 | 说明 |
 | :--- | :--- | :--- |
-| `scrape` | `python -m local_worker.pipeline.run scrape` | 采集各数据源并去重，输出 `build/data/raw_items.json` |
+| `scrape` | `python -m local_worker.pipeline.run scrape` | 采集各数据源并去重，跳过 `content_items.json` 已生成过的来源 URL，输出只含新线索的 `build/data/raw_items.json` |
 | `content` | `python -m local_worker.pipeline.run content` | 规范化为 `ContentItem`，输出 `content_items.json`，并同步导出至 Hugo。**增量执行**：id（源 URL + 标题）已存在的条目会跳过，删除某条后重跑只补生成该条 |
 | `validate` | `python -m local_worker.pipeline.run validate` | 校验内容契约、字数、唯一性、SEO 与审核发布门禁 |
 | `export` | `python -m local_worker.pipeline.run export` | 将内容输出为 Hugo Markdown 文件 (`03-distribution/site/content/posts/*.md`) |
@@ -55,7 +55,7 @@
 | `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
 | `review` | `python -m local_worker.pipeline.run review` | 人工审核工作流（查看列表、通过审核、驳回） |
 | `serve` | `python -m local_worker.pipeline.run serve` | 启动本地管理面板，用按钮触发上述阶段并浏览采集/内容结果（仅本机访问） |
-| `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`scrape -> content -> validate -> export -> build -> sync-affiliate -> sync-kv` |
+| `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`sync-affiliate -> scrape -> content -> validate -> export -> build -> sync-kv` |
 
 ## 本地管理面板（serve）
 
@@ -68,7 +68,7 @@ python -m local_worker.pipeline.run serve          # http://127.0.0.1:8787/
 python -m local_worker.server --port 8787
 ```
 
-- 按钮触发 `scrape` / `content` / `validate` / `export` / `build`；每次点击都会以**子进程**运行现有 CLI 阶段，日志实时显示在页面上，同一时间只允许一个任务。
+- 按钮触发 `scrape` / `content` / `validate` / `export` / `build` / `sync-affiliate` / `sync-kv`；每次点击都会以**子进程**运行现有 CLI 阶段，日志实时显示在页面上，同一时间只允许一个任务。
 - 右侧可选 `test` / `production` 覆盖本次运行的 `--mode`，留空则用 `app.mode`。
 - 「采集结果」「内容条目」两个表格读取 `build/data/raw_items.json` 与 `content_items.json`，点击行可看完整正文与来源链接。
 - 「联盟 Offer」页管理 `config/master-affiliate-db.json`（唯一数据源）：列表、搜索、新增、编辑、删除。每个条目包含 token、产品名、masked_path、真实联盟链接、状态、geo、披露开关；保存前会校验 token 唯一性、产品名、masked_path 能否推导出 KV slug、http/https 链接、状态、ISO 两位国家码。写入是原子写并自动保留上一版 `master-affiliate-db.json.bak`。
@@ -105,10 +105,10 @@ LOCAL_WORKER_MODE=production python -m local_worker.pipeline.run scrape
 优先级：`--mode` > 环境变量 `LOCAL_WORKER_MODE` > `app.mode`，缺省为 `production`；写了 `modes:` 但模式名不存在会直接报错，不会静默回退。每条命令启动时会打印生效配置，例如：
 
 ```
-[config] mode=test | scrape cap=1 | content cap=1 | model=baidu/ernie-5.5-flash-preview:free
+[config] mode=test | scrape cap=1 | content cap=1 | model=particle-ai/particle-1:free
 ```
 
-注意：test 模式下 `scrape` 只保留 1 条线索（会覆盖 `raw_items.json`），适合验证提示词与模型效果；累积文章请用 production 模式。
+注意：test 模式下 `scrape` 只保留 1 条**新**线索（会覆盖 `raw_items.json`），已生成过的不再重复采集，适合每天验证一条新内容；累积多条请用 production 模式。
 
 ## 人工审核工作流 (Review Queue)
 
@@ -178,6 +178,8 @@ scraper:
 ### 🔎 选题发现（topic_search）
 
 `topic_search` 通过搜索 API（默认 Exa，`POST https://api.exa.ai/search`）按关键词检索选题，只取标题、URL 与短摘要作为写作线索，**不抓取、不复用第三方正文**。生成的条目会带上 `topic` 标签，`content` 阶段据此使用「原创写作」提示词，模板兜底也不会把检索摘要写进正文。
+
+`scrape` 会读取 `content_items.json` 中已有的来源 URL 并跳过它们。某个查询返回的结果全是已有文章时，`topic_search` 会继续下一个查询/下一批结果，直到取到新线索；`max_attempts` 限制单次运行最多发起多少次搜索请求。
 
 需要设置 `EXA_API_KEY`（写入 `.env` 或环境变量，`scrape` 阶段会加载项目根目录的 `.env`）。它调用的是文档化的 API 端点，因此不受 robots.txt 约束；被 robots 禁止的页面仍然会被 `playwright` 适配器拒绝。
 

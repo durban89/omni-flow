@@ -49,23 +49,43 @@ class TopicSearchSource:
         endpoint = str(self.config.get("endpoint") or DEFAULT_ENDPOINT)
         num_results = int(self.config.get("num_results") or 10)
         max_items = int(self.config.get("max_items") or 0)
+        limit = self.context.max_new_items or max_items
+        # Bound the number of search API calls so a source full of known URLs
+        # cannot keep querying forever. Defaults to one attempt per query.
+        max_attempts = int(self.config.get("max_attempts") or len(queries))
+        attempts = 0
 
         items: list[RawItem] = []
         seen_urls: set[str] = set()
         for query in queries:
+            if attempts >= max_attempts:
+                break
+            attempts += 1
             for result in self._search(endpoint, api_key, query, num_results):
                 item = self._to_raw_item(result, query)
                 if item is None:
                     continue
                 key = canonical_url(item.source_url)
-                if key in seen_urls:
+                if key in seen_urls or key in self.context.exclude_urls:
                     continue
                 seen_urls.add(key)
                 items.append(item)
-                if max_items and len(items) >= max_items:
+                if limit and len(items) >= limit:
+                    logger.info(
+                        "[topic_search] %s: %d new topic(s) from %d query attempt(s)",
+                        self.source_id,
+                        len(items),
+                        attempts,
+                    )
                     return items
 
-        logger.info("[topic_search] %s: %d topic(s) from %d query(ies)", self.source_id, len(items), len(queries))
+        logger.info(
+            "[topic_search] %s: %d new topic(s) from %d query attempt(s) (max %d)",
+            self.source_id,
+            len(items),
+            attempts,
+            max_attempts,
+        )
         return items
 
     def _queries(self) -> list[str]:

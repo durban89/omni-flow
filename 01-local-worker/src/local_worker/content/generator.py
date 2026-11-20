@@ -32,7 +32,11 @@ class ContentGenerator:
         self.model = str(self.config.get("model") or "gpt-4o-mini")
         self.temperature = float(self.config.get("temperature") or 0.3)
         self.max_words = int(self.config.get("max_words") or 1200)
+        self.max_output_tokens = int(self.config.get("max_output_tokens") or 8000)
         self.timeout_seconds = float(self.config.get("timeout_seconds") or 30.0)
+        # OpenRouter reasoning models can spend the whole output budget thinking,
+        # leaving `content` empty with finish_reason=length. Cap reasoning tokens.
+        self.reasoning_max_tokens = int(self.config.get("reasoning_max_tokens") or 0)
         self.api_key = (
             os.environ.get("OPENAI_API_KEY")
             or os.environ.get("GEMINI_API_KEY")
@@ -139,8 +143,10 @@ class ContentGenerator:
             "response_format": {"type": "json_object"},
             # This endpoint always spends part of the budget on reasoning and
             # rejects attempts to disable it, so leave generous headroom.
-            "max_tokens": 8000,
+            "max_tokens": self.max_output_tokens,
         }
+        if self.reasoning_max_tokens and "openrouter.ai" in self.base_url:
+            payload["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
         with httpx.Client(timeout=self.timeout_seconds) as client:
             resp = client.post(
                 f"{self.base_url}/chat/completions",

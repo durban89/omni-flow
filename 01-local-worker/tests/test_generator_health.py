@@ -111,6 +111,74 @@ def test_health_llm_without_allowlisted_tokens_skips_shortcode(
     assert "{{< affiliate" not in body
 
 
+def _health_raw() -> RawItem:
+    return RawItem(
+        source_id="health-test",
+        source_url="https://example.com/reasoning",
+        title="Sensitive Health Query Topic",
+        summary="Initial health query summary.",
+        body="Detailed context regarding a sensitive medical or health concern.",
+        body_format="markdown",
+        retrieved_at=utc_now(),
+        category="health",
+    )
+
+
+def _health_response() -> MagicMock:
+    response = MagicMock(spec=httpx.Response)
+    response.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": json.dumps(
+                        {
+                            "summary": "Clinical overview.",
+                            "body_markdown": "## Clinical Overview\n\n" + "word " * 210,
+                        }
+                    )
+                }
+            }
+        ]
+    }
+    return response
+
+
+@patch("httpx.Client.post")
+def test_openrouter_request_caps_reasoning_tokens(mock_post: MagicMock) -> None:
+    mock_post.return_value = _health_response()
+    config = {
+        "model": "reasoning-model:free",
+        "base_url": "https://openrouter.ai/api/v1",
+        "reasoning_max_tokens": 1024,
+        "max_output_tokens": 16000,
+    }
+
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "mock-api-key"}):
+        generator = ContentGenerator(config).set_health_mode(True)
+        generator.generate(_health_raw())
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert payload["reasoning"] == {"max_tokens": 1024}
+    assert payload["max_tokens"] == 16000
+
+
+@patch("httpx.Client.post")
+def test_non_openrouter_request_does_not_send_reasoning(mock_post: MagicMock) -> None:
+    mock_post.return_value = _health_response()
+    config = {
+        "model": "gpt-4o-mini",
+        "base_url": "https://api.openai.com/v1",
+        "reasoning_max_tokens": 1024,
+    }
+
+    with patch.dict("os.environ", {"OPENAI_API_KEY": "mock-api-key"}):
+        generator = ContentGenerator(config).set_health_mode(True)
+        generator.generate(_health_raw())
+
+    payload = mock_post.call_args.kwargs["json"]
+    assert "reasoning" not in payload
+
+
 def test_health_template_prefers_item_affiliate_slug(tmp_path: Path) -> None:
     db_path = tmp_path / "master-affiliate-db.json"
     db_path.write_text(

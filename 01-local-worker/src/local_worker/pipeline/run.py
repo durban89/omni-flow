@@ -136,6 +136,25 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
+def _existing_content_urls(data_dir: Path) -> frozenset[str]:
+    """Source URLs already turned into content, so scrape does not repeat them."""
+    path = data_dir / "content_items.json"
+    if not path.exists():
+        return frozenset()
+
+    payload = _read_json(path)
+    urls: set[str] = set()
+    for entry in payload.get("items") or []:
+        if not isinstance(entry, dict):
+            continue
+        item = ContentItem.from_dict(entry)
+        urls.update(
+            canonical_url(source.url)
+            for source in item.sources
+            if source.url.strip()
+        )
+    return frozenset(urls)
+
 
 def run_map_affiliate(
     root: Path,
@@ -158,6 +177,14 @@ def run_map_affiliate(
 def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
     scraper = _section(settings, "scraper")
     pipeline = _section(settings, "pipeline")
+    data_dir = _data_dir(root, settings)
+
+    max_items = int(
+        scraper.get("max_items_per_run")
+        or pipeline.get("max_items_per_run")
+        or 200
+    )
+    existing_urls = _existing_content_urls(data_dir)
 
     http = HttpClient(
         user_agent=str(scraper.get("user_agent") or "LocalWorker/0.1"),
@@ -165,7 +192,12 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
         delay_ms=int(scraper.get("request_delay_ms") or 0),
         respect_robots=bool(scraper.get("respect_robots_txt", True)),
     )
-    context = SourceContext(client=http, retrieved_at=utc_now())
+    context = SourceContext(
+        client=http,
+        retrieved_at=utc_now(),
+        exclude_urls=existing_urls,
+        max_new_items=max_items,
+    )
     sources = build_sources(settings, context)
 
     raw_items: list[RawItem] = []
@@ -183,23 +215,29 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
             logger.info("[scrape] %s: %d item(s)", source.source_id, len(items))
             raw_items.extend(items)
 
-    max_items = int(
-        scraper.get("max_items_per_run")
-        or pipeline.get("max_items_per_run")
-        or 200
-    )
     seen_urls: set[str] = set()
     items: list[RawItem] = []
+    repeated_count = 0
     for item in raw_items:
         key = canonical_url(item.source_url)
         if key in seen_urls:
+            continue
+        if key in existing_urls:
+            repeated_count += 1
             continue
         seen_urls.add(key)
         items.append(item)
         if len(items) >= max_items:
             break
 
-    path = _data_dir(root, settings) / "raw_items.json"
+    if existing_urls:
+        logger.info(
+            "[scrape] %d existing URL(s) excluded, %d new item(s) kept",
+            repeated_count,
+            len(items),
+        )
+
+    path = data_dir / "raw_items.json"
     _write_json(
         path,
         {
@@ -483,6 +521,13 @@ def run_review(
 
 
 def run_all(root: Path, settings: dict[str, Any], dry_run: bool = False) -> None:
+    # Refresh derived affiliate artifacts first. Content reads the master DB
+    # directly, but Hugo's affiliate shortcode builds against site/data/affiliate-map.json,
+    # and sync-kv consumes config/affiliate-offers.json.
+    try:
+        run_map_affiliate(root, settings, dry_run=dry_run)
+    except LocalWorkerError as exc:
+        logger.warning("[sync-affiliate] skipped: %s", exc)
     run_scrape(root, settings)
     run_content(root, settings)
     run_validate(root, settings)
@@ -494,10 +539,6 @@ def run_all(root: Path, settings: dict[str, Any], dry_run: bool = False) -> None
             logger.warning("[build] skipped: %s", exc)
         else:
             raise
-    try:
-        run_map_affiliate(root, settings, dry_run=dry_run)
-    except LocalWorkerError as exc:
-        logger.warning("[sync-affiliate] skipped: %s", exc)
     run_kv_sync(root, settings, dry_run=dry_run)
 
 

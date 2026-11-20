@@ -254,7 +254,7 @@ const state = {
   offers: [],
   offerMeta: null,
   offersLoaded: false,
-  editingSlug: null,
+  editingToken: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -398,8 +398,8 @@ function renderTable() {
           <td class="title"><div class="sub">${esc(row.destination)}</div></td>
           <td>${row.disclosure_required === false ? "否" : "是"}</td>
           <td><div class="row-actions">
-            <button class="small" data-action="edit" data-slug="${esc(row.slug)}">编辑</button>
-            <button class="small danger" data-action="delete" data-slug="${esc(row.slug)}">删除</button>
+            <button class="small" data-action="edit" data-token="${esc(row.token)}">编辑</button>
+            <button class="small danger" data-action="delete" data-token="${esc(row.token)}">删除</button>
           </div></td>
         </tr>`;
       }).join("") : `<tr><td colspan="6" class="empty">还没有 offer，点「新增 Offer」创建第一条</td></tr>`}</tbody>`;
@@ -535,7 +535,7 @@ function openOfferForm(offer) {
   const options = state.offerMeta?.status_options || ["active", "paused", "disabled"];
   select.innerHTML = options.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
 
-  state.editingSlug = offer ? offer.token : null;
+  state.editingToken = offer ? offer.token : null;
   $("offer-title").textContent = offer ? `编辑 ${offer.token}` : "新增主库条目";
   $("offer-token").value = offer?.token || "";
   $("offer-product").value = offer?.product_name || "";
@@ -546,23 +546,23 @@ function openOfferForm(offer) {
   $("offer-disclosure").checked = offer?.disclosure_required !== false;
   $("offer-error").textContent = "";
   $("offer-modal").hidden = false;
-  $("offer-slug").focus();
+  $("offer-token").focus();
 }
 
 function closeOfferForm() {
   $("offer-modal").hidden = true;
-  state.editingSlug = null;
+  state.editingToken = null;
 }
 
-async function removeOffer(slug) {
-  if (!window.confirm(`删除 offer ${slug}？文件会先备份为 .bak`)) return;
+async function removeOffer(token) {
+  if (!window.confirm(`删除 offer ${token}？文件会先备份为 .bak`)) return;
   try {
-    const data = await api("/api/offers/delete", { method: "POST", body: JSON.stringify({ slug }) });
+    const data = await api("/api/offers/delete", { method: "POST", body: JSON.stringify({ slug: token }) });
     state.offerMeta = data;
     state.offers = data.offers || [];
     renderOffersHint();
     renderTable();
-    setOfferMessage(`已删除 ${slug}`);
+    setOfferMessage(`已删除 ${token}`);
   } catch (err) {
     setOfferMessage(err.message, true);
   }
@@ -605,11 +605,11 @@ document.addEventListener("click", (event) => {
   }
   const actionBtn = event.target.closest("button[data-action]");
   if (actionBtn) {
-    const slug = actionBtn.dataset.slug;
+    const token = actionBtn.dataset.token;
     if (actionBtn.dataset.action === "edit") {
-      openOfferForm(state.offers.find((offer) => offer.token === slug));
+      openOfferForm(state.offers.find((offer) => offer.token === token));
     } else if (actionBtn.dataset.action === "delete") {
-      removeOffer(slug);
+      removeOffer(token);
     }
     return;
   }
@@ -638,7 +638,7 @@ document.addEventListener("keydown", (event) => {
   try {
     const data = await api("/api/offers", {
       method: "POST",
-      body: JSON.stringify({ offer, original_slug: state.editingSlug }),
+      body: JSON.stringify({ offer, original_slug: state.editingToken }),
     });
     state.offerMeta = data;
     state.offers = data.offers || [];

@@ -21,6 +21,8 @@ _LLM_KEYS = (
     "temperature",
     "max_words",
     "timeout_seconds",
+    "reasoning_max_tokens",
+    "max_output_tokens",
 )
 
 
