@@ -26,6 +26,7 @@ from local_worker.models import (
     canonical_url,
     content_id,
     isoformat,
+    string_list,
     utc_now,
 )
 from local_worker.pipeline.affiliate_sync import sync_from_master_db
@@ -136,14 +137,18 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     )
 
 
-def _existing_content_urls(data_dir: Path) -> frozenset[str]:
-    """Source URLs already turned into content, so scrape does not repeat them."""
+def _existing_content_state(
+    data_dir: Path,
+) -> tuple[frozenset[str], frozenset[str], tuple[str, ...]]:
+    """URLs, topic queries and titles already covered by generated content."""
     path = data_dir / "content_items.json"
     if not path.exists():
-        return frozenset()
+        return frozenset(), frozenset(), ()
 
     payload = _read_json(path)
     urls: set[str] = set()
+    queries: set[str] = set()
+    titles: list[str] = []
     for entry in payload.get("items") or []:
         if not isinstance(entry, dict):
             continue
@@ -153,7 +158,76 @@ def _existing_content_urls(data_dir: Path) -> frozenset[str]:
             for source in item.sources
             if source.url.strip()
         )
-    return frozenset(urls)
+        titles.append(item.title)
+        titles.extend(source.title for source in item.sources if source.title)
+        if "topic" in item.tags:
+            queries.update(item.keywords)
+    return frozenset(urls), frozenset(queries), tuple(dict.fromkeys(titles))
+
+
+def _lead_history_path(data_dir: Path) -> Path:
+    return data_dir / "lead_history.json"
+
+
+def _read_lead_history(data_dir: Path) -> tuple[set[str], set[str], set[str]]:
+    """Leads seen by earlier scrape runs, even before content is generated."""
+    path = _lead_history_path(data_dir)
+    if not path.exists():
+        return set(), set(), set()
+    payload = _read_json(path)
+    return (
+        set(string_list(payload.get("urls"))),
+        set(string_list(payload.get("queries"))),
+        set(string_list(payload.get("titles"))),
+    )
+
+
+def _write_lead_history(
+    data_dir: Path,
+    *,
+    urls: set[str],
+    queries: set[str],
+    titles: set[str],
+) -> None:
+    _write_json(
+        _lead_history_path(data_dir),
+        {
+            "schema_version": SCHEMA_VERSION,
+            "updated_at": isoformat(utc_now()),
+            "urls": sorted(urls),
+            "queries": sorted(queries),
+            "titles": sorted(titles),
+        },
+    )
+
+
+def _release_failed_leads(
+    data_dir: Path,
+    raw_items: list[RawItem],
+    failed_ids: set[str],
+) -> None:
+    """Make leads whose generation failed eligible for a later scrape retry."""
+    if not failed_ids:
+        return
+    failed = [
+        raw
+        for raw in raw_items
+        if content_id(canonical_url(raw.source_url), raw.title.strip()) in failed_ids
+    ]
+    if not failed:
+        return
+
+    urls, queries, titles = _read_lead_history(data_dir)
+    for raw in failed:
+        urls.discard(canonical_url(raw.source_url))
+        if "topic" in raw.tags:
+            queries.difference_update(raw.keywords)
+            titles.discard(raw.title)
+    _write_lead_history(data_dir, urls=urls, queries=queries, titles=titles)
+    logger.info(
+        "[content] released %d failed lead(s) for retry on the next scrape",
+        len(failed),
+    )
 
 
 def run_map_affiliate(
@@ -184,7 +258,11 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
         or pipeline.get("max_items_per_run")
         or 200
     )
-    existing_urls = _existing_content_urls(data_dir)
+    existing_urls, used_queries, content_titles = _existing_content_state(data_dir)
+    history_urls, history_queries, history_titles = _read_lead_history(data_dir)
+    exclude_urls = existing_urls | frozenset(history_urls)
+    exclude_queries = used_queries | frozenset(history_queries)
+    exclude_titles = tuple(dict.fromkeys([*content_titles, *sorted(history_titles)]))
 
     http = HttpClient(
         user_agent=str(scraper.get("user_agent") or "LocalWorker/0.1"),
@@ -195,7 +273,9 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
     context = SourceContext(
         client=http,
         retrieved_at=utc_now(),
-        exclude_urls=existing_urls,
+        exclude_urls=exclude_urls,
+        exclude_queries=exclude_queries,
+        exclude_titles=exclude_titles,
         max_new_items=max_items,
     )
     sources = build_sources(settings, context)
@@ -222,7 +302,7 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
         key = canonical_url(item.source_url)
         if key in seen_urls:
             continue
-        if key in existing_urls:
+        if key in exclude_urls:
             repeated_count += 1
             continue
         seen_urls.add(key)
@@ -230,11 +310,27 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
         if len(items) >= max_items:
             break
 
-    if existing_urls:
+    if exclude_urls or exclude_queries:
         logger.info(
-            "[scrape] %d existing URL(s) excluded, %d new item(s) kept",
+            "[scrape] %d known URL(s) and %d used query/queries excluded, "
+            "%d repeated result(s) dropped, %d new item(s) kept",
+            len(exclude_urls),
+            len(exclude_queries),
             repeated_count,
             len(items),
+        )
+
+    if items:
+        history_urls.update(canonical_url(item.source_url) for item in items)
+        for item in items:
+            if "topic" in item.tags:
+                history_queries.update(item.keywords)
+                history_titles.add(item.title)
+        _write_lead_history(
+            data_dir,
+            urls=history_urls,
+            queries=history_queries,
+            titles=history_titles,
         )
 
     path = data_dir / "raw_items.json"
@@ -300,18 +396,24 @@ def run_content(root: Path, settings: dict[str, Any]) -> Path:
     saved_reviews = review_store.load()
 
     master_db_path = root / "config/master-affiliate-db.json"
+    deferred_ids: list[str] = []
     new_items = normalize_raw_items(
         pending_raw_items,
         settings,
         master_db_path,
-        reviews=saved_reviews)
+        reviews=saved_reviews,
+        deferred_out=deferred_ids,
+    )
 
     if not new_items:
+        _release_failed_leads(data_dir, pending_raw_items, set(deferred_ids))
         logger.warning(
             "[content] no item(s) generated this run (see warnings above); %d item(s) left unchanged",
             len(existing_items),
         )
         return content_path
+
+    _release_failed_leads(data_dir, pending_raw_items, set(deferred_ids))
 
     used_slugs = {item.slug for item in existing_items}
     for index, item in enumerate(new_items):

@@ -139,6 +139,23 @@ def test_normalize_skips_item_when_llm_generation_fails() -> None:
     assert items == []
 
 
+def test_normalize_reports_failed_lead_ids() -> None:
+    settings = {"pipeline": {"max_items_per_run": 10}, "llm": {"enable": True}}
+    fake_generator = MagicMock()
+    fake_generator.has_llm_credentials = True
+    fake_generator.set_master_db_path.return_value = fake_generator
+    fake_generator.set_health_mode.return_value = fake_generator
+    fake_generator.generate.side_effect = LLMGenerationError("429 Too Many Requests")
+    deferred: list[str] = []
+    raw = make_raw(tags=("topic", "health"), category="health")
+
+    with patch("local_worker.content.normalize.ContentGenerator", return_value=fake_generator):
+        items = normalize_raw_items([raw], settings, "", deferred_out=deferred)
+
+    assert items == []
+    assert deferred == [content_id(raw.source_url, raw.title)]
+
+
 def test_normalize_converts_html_body_to_text() -> None:
     items = normalize_raw_items(
         [

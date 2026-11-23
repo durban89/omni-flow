@@ -140,6 +140,128 @@ def test_topic_search_stops_at_max_attempts(monkeypatch: pytest.MonkeyPatch) -> 
     assert len(requests) == 2
 
 
+def test_topic_search_skips_used_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        query = json.loads(request.content)["query"]
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": f"Fresh article for {query}",
+                        "url": f"https://news.example.com/{quote(query)}",
+                        "text": "New lead.",
+                    }
+                ]
+            },
+        )
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {"queries": ["used query", "fresh query"], "max_items": 5},
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            exclude_queries=frozenset({"used query"}),
+            max_new_items=1,
+        ),
+    )
+
+    items = source.fetch()
+
+    assert [item.keywords for item in items] == [("fresh query",)]
+    assert len(requests) == 1
+    assert json.loads(requests[0].content)["query"] == "fresh query"
+
+
+def test_topic_search_limits_results_per_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        query = json.loads(request.content)["query"]
+        titles = {
+            "first query": ("Alpha sizing guide", "Alpha sizing notes"),
+            "second query": ("Beta latex guide", "Beta latex notes"),
+        }[query]
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": titles[0],
+                        "url": f"https://news.example.com/{quote(query)}/one",
+                        "text": "First lead.",
+                    },
+                    {
+                        "title": titles[1],
+                        "url": f"https://news.example.com/{quote(query)}/two",
+                        "text": "Second lead.",
+                    },
+                ]
+            },
+        )
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {"queries": ["first query", "second query"], "max_items": 10, "max_items_per_query": 1},
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            max_new_items=10,
+        ),
+    )
+
+    items = source.fetch()
+
+    assert [item.source_url for item in items] == [
+        "https://news.example.com/first%20query/one",
+        "https://news.example.com/second%20query/one",
+    ]
+
+
+def test_topic_search_skips_similar_existing_title(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        query = json.loads(request.content)["query"]
+        if query == "sizing":
+            results = [
+                {
+                    "title": "Condom Size Chart: How (and Why) It Matters",
+                    "url": "https://news.example.com/duplicate-sizing",
+                    "text": "Same topic.",
+                }
+            ]
+        else:
+            results = [
+                {
+                    "title": "Latex allergy: polyurethane condom alternatives",
+                    "url": "https://news.example.com/latex",
+                    "text": "Different topic.",
+                }
+            ]
+        return httpx.Response(200, json={"results": results})
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {"queries": ["sizing", "latex"], "max_items": 5},
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            exclude_titles=("Condom size chart: how to measure for the right fit",),
+            max_new_items=1,
+        ),
+    )
+
+    items = source.fetch()
+
+    assert [item.source_url for item in items] == ["https://news.example.com/latex"]
+    assert len(requests) == 2
+
+
 def test_topic_search_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("EXA_API_KEY", raising=False)
     source = TopicSearchSource("topic_health_zh", {"query": "condoms"}, _context(_exa_handler([])))

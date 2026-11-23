@@ -49,6 +49,7 @@ def normalize_raw_items(
     master_db_path: str | Path = "",
     *,
     reviews: dict[str, dict[str, Any]] | None = None,
+    deferred_out: list[str] | None = None,
 ) -> list[ContentItem]:
     app = _mapping(settings.get("app"))
     pipeline = _mapping(settings.get("pipeline"))
@@ -95,6 +96,8 @@ def normalize_raw_items(
                 # Leave the item out of content_items.json; the next run retries it.
                 logger.warning("[generator] skipping %s, will retry next run: %s", item_id, exc)
                 deferred_ids.append(item_id)
+                if deferred_out is not None:
+                    deferred_out.append(item_id)
                 continue
         else:
             # Fallback path for reviewed items or when LLM is disabled: reuse raw body as-is.

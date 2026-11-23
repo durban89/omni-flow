@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 from local_worker.errors import ScrapeError
@@ -19,6 +20,43 @@ logger = logging.getLogger("local_worker.scraper.topic_search")
 DEFAULT_ENDPOINT = "https://api.exa.ai/search"
 DEFAULT_API_KEY_ENV = "EXA_API_KEY"
 SNIPPET_CHARS = 400
+
+# Words that carry no topic signal in English headlines. Headline similarity is
+# part of lead dedupe, so "How to Choose the Right Condom Size Chart" and
+# "Condom Size Chart: How It Matters" need to collapse to the same topic.
+_TITLE_STOPWORDS = {
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "in", "is", "it", "of", "on", "or", "that", "the", "this",
+    "to", "was", "were", "what", "when", "where", "which", "who", "will",
+    "with", "you", "your",
+}
+
+
+def _query_key(value: str) -> str:
+    return " ".join(value.casefold().split())
+
+
+def _title_tokens(value: str) -> frozenset[str]:
+    words = re.findall(r"[a-z0-9]+", value.casefold())
+    return frozenset(word for word in words if len(word) > 2 and word not in _TITLE_STOPWORDS)
+
+
+def _is_similar_title(title: str, known_titles: list[str]) -> bool:
+    tokens = _title_tokens(title)
+    if len(tokens) < 2:
+        return False
+    for known in known_titles:
+        other = _title_tokens(known)
+        if len(other) < 2:
+            continue
+        overlap = len(tokens & other)
+        if overlap < 2:
+            continue
+        containment = overlap / min(len(tokens), len(other))
+        jaccard = overlap / len(tokens | other)
+        if containment >= 0.6 or jaccard >= 0.5:
+            return True
+    return False
 
 
 class TopicSearchSource:
@@ -50,17 +88,26 @@ class TopicSearchSource:
         num_results = int(self.config.get("num_results") or 10)
         max_items = int(self.config.get("max_items") or 0)
         limit = self.context.max_new_items or max_items
+        # A query is a topic, not a feed. Taking many results for one query is
+        # what produced several nearly identical "condom size chart" articles.
+        per_query_limit = int(self.config.get("max_items_per_query") or 0)
         # Bound the number of search API calls so a source full of known URLs
         # cannot keep querying forever. Defaults to one attempt per query.
         max_attempts = int(self.config.get("max_attempts") or len(queries))
         attempts = 0
+        used_queries = {_query_key(query) for query in self.context.exclude_queries}
+        known_titles = list(self.context.exclude_titles)
 
         items: list[RawItem] = []
         seen_urls: set[str] = set()
         for query in queries:
+            if _query_key(query) in used_queries:
+                logger.info("[topic_search] %s: skip used query %r", self.source_id, query)
+                continue
             if attempts >= max_attempts:
                 break
             attempts += 1
+            query_items = 0
             for result in self._search(endpoint, api_key, query, num_results):
                 item = self._to_raw_item(result, query)
                 if item is None:
@@ -68,8 +115,15 @@ class TopicSearchSource:
                 key = canonical_url(item.source_url)
                 if key in seen_urls or key in self.context.exclude_urls:
                     continue
+                if _is_similar_title(item.title, known_titles):
+                    logger.info("[topic_search] %s: skip similar topic %r", self.source_id, item.title)
+                    continue
                 seen_urls.add(key)
+                known_titles.append(item.title)
                 items.append(item)
+                query_items += 1
+                if per_query_limit and query_items >= per_query_limit:
+                    break
                 if limit and len(items) >= limit:
                     logger.info(
                         "[topic_search] %s: %d new topic(s) from %d query attempt(s)",
@@ -78,6 +132,14 @@ class TopicSearchSource:
                         attempts,
                     )
                     return items
+            if limit and len(items) >= limit:
+                logger.info(
+                    "[topic_search] %s: %d new topic(s) from %d query attempt(s)",
+                    self.source_id,
+                    len(items),
+                    attempts,
+                )
+                return items
 
         logger.info(
             "[topic_search] %s: %d new topic(s) from %d query attempt(s) (max %d)",

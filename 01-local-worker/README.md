@@ -46,7 +46,7 @@
 
 | 阶段 | 命令 | 说明 |
 | :--- | :--- | :--- |
-| `scrape` | `python -m local_worker.pipeline.run scrape` | 采集各数据源并去重，跳过 `content_items.json` 已生成过的来源 URL，输出只含新线索的 `build/data/raw_items.json` |
+| `scrape` | `python -m local_worker.pipeline.run scrape` | 采集各数据源并去重，跳过已生成的来源 URL、已用过的 topic query 和 `lead_history.json` 中已采集的线索，输出只含新线索的 `build/data/raw_items.json` |
 | `content` | `python -m local_worker.pipeline.run content` | 规范化为 `ContentItem`，输出 `content_items.json`，并同步导出至 Hugo。**增量执行**：id（源 URL + 标题）已存在的条目会跳过，删除某条后重跑只补生成该条 |
 | `validate` | `python -m local_worker.pipeline.run validate` | 校验内容契约、字数、唯一性、SEO 与审核发布门禁 |
 | `export` | `python -m local_worker.pipeline.run export` | 将内容输出为 Hugo Markdown 文件 (`03-distribution/site/content/posts/*.md`) |
@@ -108,7 +108,7 @@ LOCAL_WORKER_MODE=production python -m local_worker.pipeline.run scrape
 [config] mode=test | scrape cap=1 | content cap=1 | model=particle-ai/particle-1:free
 ```
 
-注意：test 模式下 `scrape` 只保留 1 条**新**线索（会覆盖 `raw_items.json`），已生成过的不再重复采集，适合每天验证一条新内容；累积多条请用 production 模式。
+注意：test 模式下 `scrape` 只保留 1 条**新**线索（会覆盖 `raw_items.json`），已生成过或已采集过的 URL、已用过的 seed query 都不再重复采集，适合每天验证一条新内容；累积多条请用 production 模式。
 
 ## 人工审核工作流 (Review Queue)
 
@@ -179,7 +179,7 @@ scraper:
 
 `topic_search` 通过搜索 API（默认 Exa，`POST https://api.exa.ai/search`）按关键词检索选题，只取标题、URL 与短摘要作为写作线索，**不抓取、不复用第三方正文**。生成的条目会带上 `topic` 标签，`content` 阶段据此使用「原创写作」提示词，模板兜底也不会把检索摘要写进正文。
 
-`scrape` 会读取 `content_items.json` 中已有的来源 URL 并跳过它们。某个查询返回的结果全是已有文章时，`topic_search` 会继续下一个查询/下一批结果，直到取到新线索；`max_attempts` 限制单次运行最多发起多少次搜索请求。
+`scrape` 会读取 `content_items.json` 中已有的来源 URL、已用过的 seed query 和标题，并读取 `build/data/lead_history.json`（记录历次采集到的线索，即使还没跑 `content`）。因此连续点 `scrape` 也会继续往下走，不会反复拿到同一条。某个 query 已生成过文章后，整条 query 会被跳过；`max_items_per_query` 控制一个 query 一次最多取几条（默认 0 不限，项目配置设为 1）。`max_attempts` 限制单次运行最多发起多少次搜索请求。
 
 需要设置 `EXA_API_KEY`（写入 `.env` 或环境变量，`scrape` 阶段会加载项目根目录的 `.env`）。它调用的是文档化的 API 端点，因此不受 robots.txt 约束；被 robots 禁止的页面仍然会被 `playwright` 适配器拒绝。
 
