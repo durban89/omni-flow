@@ -418,7 +418,7 @@ function renderTable() {
         </tr>`).join("") : `<tr><td colspan="4" class="empty">还没有采集结果，先点「发起采集」</td></tr>`}</tbody>`;
   } else {
     table.innerHTML = `
-      <thead><tr><th>标题</th><th>状态</th><th>字数</th><th>分类</th><th>更新时间</th></tr></thead>
+      <thead><tr><th>标题</th><th>状态</th><th>字数</th><th>分类</th><th>更新时间</th><th>操作</th></tr></thead>
       <tbody>${rows.length ? rows.map((row) => `
         <tr data-kind="content" data-index="${row.index}" class="${state.selected === `content-${row.index}` ? "selected" : ""}">
           <td class="title">${esc(row.title)}<div class="sub">${esc(row.slug)}</div></td>
@@ -426,7 +426,10 @@ function renderTable() {
           <td>${esc(row.word_count ?? "—")}</td>
           <td>${esc(row.category || "—")}</td>
           <td>${esc(fmtTime(row.updated_at))}</td>
-        </tr>`).join("") : `<tr><td colspan="5" class="empty">还没有内容条目，先点「生成内容」</td></tr>`}</tbody>`;
+          <td><div class="row-actions">${row.status === "published" && row.reviewed
+            ? `<span class="badge published">已通过</span>`
+            : `<button class="small primary" data-action="approve" data-slug="${esc(row.slug)}">审核通过</button>`}</div></td>
+        </tr>`).join("") : `<tr><td colspan="6" class="empty">还没有内容条目，先点「生成内容」</td></tr>`}</tbody>`;
   }
 }
 
@@ -554,6 +557,23 @@ function closeOfferForm() {
   state.editingToken = null;
 }
 
+async function approveContent(slug) {
+  if (!window.confirm(`审核通过 ${slug}？将转为 published、reviewed，并重新导出 Hugo 文章。`)) return;
+  setOfferMessage("");
+  try {
+    const data = await api("/api/content/approve", {
+      method: "POST",
+      body: JSON.stringify({ slug, reviewer: "console" }),
+    });
+    await refreshOverview();
+    await refreshLists();
+    const warning = data.warning ? `（${data.warning}）` : "";
+    setOfferMessage(`已审核通过 ${data.item.slug}，状态 ${data.item.status}${warning}`, Boolean(data.warning));
+  } catch (err) {
+    setOfferMessage(err.message, true);
+  }
+}
+
 async function removeOffer(token) {
   if (!window.confirm(`删除 offer ${token}？文件会先备份为 .bak`)) return;
   try {
@@ -606,7 +626,9 @@ document.addEventListener("click", (event) => {
   const actionBtn = event.target.closest("button[data-action]");
   if (actionBtn) {
     const token = actionBtn.dataset.token;
-    if (actionBtn.dataset.action === "edit") {
+    if (actionBtn.dataset.action === "approve") {
+      approveContent(actionBtn.dataset.slug);
+    } else if (actionBtn.dataset.action === "edit") {
       openOfferForm(state.offers.find((offer) => offer.token === token));
     } else if (actionBtn.dataset.action === "delete") {
       removeOffer(token);

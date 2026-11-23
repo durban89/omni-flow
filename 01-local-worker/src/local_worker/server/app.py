@@ -23,8 +23,16 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from local_worker.config import load_settings, resolve_llm_settings
-from local_worker.errors import ConfigError
-from local_worker.pipeline.run import DEFAULT_SETTINGS, PROJECT_ROOT, _data_dir, _section
+from local_worker.content.review import ReviewService
+from local_worker.errors import ConfigError, LocalWorkerError
+from local_worker.pipeline.run import (
+    DEFAULT_SETTINGS,
+    PROJECT_ROOT,
+    _data_dir,
+    _resolve,
+    _section,
+    run_export,
+)
 from local_worker.server import offers as offer_store
 
 STAGES = (
@@ -436,6 +444,7 @@ class ControlHandler(BaseHTTPRequestHandler):
         route = parsed.path.rstrip("/") or "/"
         routes = {
             "/api/run": self._handle_run,
+            "/api/content/approve": self._handle_content_approve,
             "/api/offers": self._handle_offer_save,
             "/api/offers/delete": self._handle_offer_delete,
         }
@@ -478,6 +487,52 @@ class ControlHandler(BaseHTTPRequestHandler):
             return
 
         self._send_json({"job": job.to_dict(cursor=0)}, status=HTTPStatus.ACCEPTED)
+
+    def _handle_content_approve(self, payload: dict[str, Any]) -> None:
+        target = str(payload.get("slug") or payload.get("id") or "").strip()
+        if not target:
+            self._error(HTTPStatus.BAD_REQUEST, "slug is required")
+            return
+
+        running = self.server.manager.running()
+        if running is not None:
+            self._error(HTTPStatus.CONFLICT, f"stage '{running.stage}' is still running")
+            return
+
+        try:
+            settings = load_settings(self._settings_path())
+            item = ReviewService(
+                _data_dir(self.server.project_root, settings)
+            ).approve(
+                target,
+                reviewer=str(payload.get("reviewer") or "console"),
+                notes=str(payload.get("notes") or ""),
+            )
+        except (LocalWorkerError, OSError) as exc:
+            self._error(HTTPStatus.BAD_REQUEST, f"{type(exc).__name__}: {exc}")
+            return
+
+        result: dict[str, Any] = {
+            "item": {
+                "slug": item.slug,
+                "status": item.status,
+                "reviewed": item.reviewed,
+                "published_at": item.published_at.isoformat() if item.published_at else None,
+            },
+            "exported": False,
+        }
+        # Mirror the CLI: refresh the Hugo posts so the approved page is live.
+        build_conf = _section(settings, "build")
+        site_dir = _resolve(
+            self.server.project_root, str(build_conf.get("site_dir") or "03-distribution/site")
+        )
+        try:
+            if site_dir.exists():
+                run_export(self.server.project_root, settings)
+                result["exported"] = True
+        except (LocalWorkerError, OSError) as exc:
+            result["warning"] = f"export failed: {type(exc).__name__}: {exc}"
+        self._send_json(result)
 
     def _handle_offer_save(self, payload: dict[str, Any]) -> None:
         original = payload.get("original_slug")

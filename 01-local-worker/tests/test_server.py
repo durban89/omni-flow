@@ -156,6 +156,24 @@ def test_unknown_item_index_returns_404(panel: str) -> None:
     assert excinfo.value.code == 404
 
 
+def test_content_approve(panel: str) -> None:
+    _, data = _post(f"{panel}/api/content/approve", {"slug": "first-guide"})
+    assert data["item"]["slug"] == "first-guide"
+    assert data["item"]["status"] == "published"
+    assert data["item"]["reviewed"] is True
+    assert data["item"]["published_at"]
+    assert data["exported"] is False  # no Hugo site in this fixture
+
+    _, listing = _get(f"{panel}/api/content")
+    assert listing["items"][0]["status"] == "published"
+    assert listing["items"][0]["reviewed"] is True
+    assert listing["items"][0]["noindex"] is False
+
+    with pytest.raises(urllib.error.HTTPError) as excinfo:
+        _post(f"{panel}/api/content/approve", {"slug": "missing-guide"})
+    assert excinfo.value.code == 400
+
+
 def test_run_rejects_unknown_stage(panel: str) -> None:
     with pytest.raises(urllib.error.HTTPError) as excinfo:
         _post(f"{panel}/api/run", {"stage": "rm-rf"})
@@ -167,6 +185,7 @@ def test_ui_is_served(panel: str) -> None:
         html = response.read().decode("utf-8")
     assert "local-worker" in html
     assert "data-stage=\"scrape\"" in html
+    assert 'data-action="approve"' in html
 
 
 def test_offers_crud(panel: str) -> None:
