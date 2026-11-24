@@ -31,6 +31,7 @@ config/master-affiliate-db.json
 02-cloudflare/worker/package-lock.json
 02-cloudflare/kv/test.json
 02-cloudflare/worker/wrangler.toml
+02-cloudflare/worker/wrangler.deploy.toml
 03-distribution/site/.hugo_build.lock
 03-distribution/site/content/posts/
 03-distribution/site/data/content_items.json

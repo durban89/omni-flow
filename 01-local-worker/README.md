@@ -51,8 +51,10 @@
 | `validate` | `python -m local_worker.pipeline.run validate` | 校验内容契约、字数、唯一性、SEO 与审核发布门禁 |
 | `export` | `python -m local_worker.pipeline.run export` | 将内容输出为 Hugo Markdown 文件 (`03-distribution/site/content/posts/*.md`) |
 | `build` | `python -m local_worker.pipeline.run build` | 调用 Hugo 构建静态站产物输出到 `build/public/` |
+| `deploy-pages` | `python -m local_worker.pipeline.run deploy-pages` | 先运行 `build`，再执行 `npx wrangler pages deploy` 发布到 Cloudflare Pages；项目名按模式取 `cloudflare.pages_project`（`test` → `condom-iq-dev`，`production` → `condom-iq`，`CLOUDFLARE_PAGES_PROJECT` 可覆盖） |
+| `deploy-worker` | `python -m local_worker.pipeline.run deploy-worker` | 把 `02-cloudflare/worker/wrangler.toml` 生成为当前模式的 `wrangler.deploy.toml`（Worker 名按模式：`test` → `condom-iq-router-dev`，`production` → `condom-iq-router`；KV 按模式选 `CLOUDFLARE_KV_NAMESPACE_ID_DEV` / `_PROD`），再执行 `npx wrangler deploy` 发布 `/healthz` 与 `/out/*` |
 | `sync-affiliate` | `python -m local_worker.pipeline.run sync-affiliate` | 从 `master-affiliate-db.json` 生成 Hugo 脱敏映射 + `affiliate-offers.json` |
-| `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV |
+| `sync-kv` | `python -m local_worker.pipeline.run sync-kv` | 校验 `affiliate-offers.json` 并生成 Cloudflare KV bulk 数据/同步到 KV（`production` 推 `CLOUDFLARE_KV_NAMESPACE_ID_PROD`，`test` 推 `CLOUDFLARE_KV_NAMESPACE_ID_DEV`） |
 | `review` | `python -m local_worker.pipeline.run review` | 人工审核工作流（查看列表、通过审核、驳回） |
 | `serve` | `python -m local_worker.pipeline.run serve` | 启动本地管理面板，用按钮触发上述阶段并浏览采集/内容结果（仅本机访问） |
 | `all` | `python -m local_worker.pipeline.run all` | 串联完整流程：`sync-affiliate -> scrape -> content -> validate -> export -> build -> sync-kv` |
@@ -68,11 +70,14 @@ python -m local_worker.pipeline.run serve          # http://127.0.0.1:8787/
 python -m local_worker.server --port 8787
 ```
 
-- 按钮触发 `scrape` / `content` / `validate` / `export` / `build` / `sync-affiliate` / `sync-kv`；每次点击都会以**子进程**运行现有 CLI 阶段，日志实时显示在页面上，同一时间只允许一个任务。
+- 按钮触发 `scrape` / `content` / `validate` / `export` / `build` / `deploy-pages` / `deploy-worker` / `sync-affiliate` / `sync-kv`；每次点击都会以**子进程**运行现有 CLI 阶段，日志实时显示在页面上，同一时间只允许一个任务。
+- 「同步 Pages」会先构建站点再执行 `wrangler pages deploy`，点击时会二次确认（页头 chip 显示目标项目名）。它只发布 Pages，不部署 Worker；需要 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`（或 `wrangler login` 会话），缺失时错误会显示在运行日志里。
+- 「部署 Worker」在 `02-cloudflare/worker` 执行 `npx wrangler deploy`，点击时会二次确认（页头 chip 显示 `cloudflare.worker_name`）。它不会先构建 Pages，也不写 KV；Worker 名与 KV 绑定都按右侧模式选择（`test` → `condom-iq-router-dev` + `condom-iq-dev`，`production` → `condom-iq-router` + `condom-iq`），不会覆盖线上 Worker。`wrangler.toml` 缺失时会直接报错并提示复制模板。
+- 右侧模式下拉框不只传给任务：切换后页头 chip 与两个部署按钮的确认文案都会刷新，显示该模式实际会用的 Pages 项目和 Worker。
 - 右侧可选 `test` / `production` 覆盖本次运行的 `--mode`，留空则用 `app.mode`。
 - 「采集结果」「内容条目」两个表格读取 `build/data/raw_items.json` 与 `content_items.json`，点击行可看完整正文与来源链接。
 - 「联盟 Offer」页管理 `config/master-affiliate-db.json`（唯一数据源）：列表、搜索、新增、编辑、删除。每个条目包含 token、产品名、masked_path、真实联盟链接、状态、geo、披露开关；保存前会校验 token 唯一性、产品名、masked_path 能否推导出 KV slug、http/https 链接、状态、ISO 两位国家码。写入是原子写并自动保留上一版 `master-affiliate-db.json.bak`。
-- 改完 master DB 后，需要依次运行 `sync-affiliate`（重新生成 `config/affiliate-offers.json` 与站点 `affiliate-map.json`）与 `sync-kv`（推送到 Cloudflare KV），面板不会自动触发这两个外部写入。
+- 改完 master DB 后，需要依次运行 `sync-affiliate`（重新生成 `config/affiliate-offers.json` 与站点 `affiliate-map.json`）与 `sync-kv`（推送到 Cloudflare KV），面板不会自动触发这两个外部写入。`sync-kv` 的目标 namespace 由模式决定（`test` → `condom-iq-dev`，`production` → `condom-iq`），可在右侧模式下拉框确认后再运行。
 - 面板只绑定 `127.0.0.1`，没有登录鉴权，**不要**用 `--host 0.0.0.0` 暴露到公网，也不要部署到服务器；它只是本地便利工具。
 - 任务只存在于内存，重启面板后历史列表清空，但数据文件与日志照旧。
 

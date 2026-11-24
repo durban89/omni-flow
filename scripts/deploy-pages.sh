@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-example-matrix}"
+PAGES_PROJECT="${CLOUDFLARE_PAGES_PROJECT:-condom-iq}"
 OUTPUT_DIR="$ROOT/01-local-worker/build/public"
 
 hugo --source 03-distribution/site --minify --destination "$OUTPUT_DIR"

@@ -3,6 +3,18 @@ app:
   base_url: "https://condomiq.com"
   default_locale: "en-US"
 
+# Per-mode overrides, deep-merged over the base config below. `test` publishes to
+# a separate Pages project; production keeps the base `cloudflare.pages_project`.
+modes:
+  test:
+    cloudflare:
+      pages_project: "condom-iq-dev"
+      worker_name: "condom-iq-router-dev"
+  production:
+    cloudflare:
+      pages_project: "condom-iq"
+      worker_name: "condom-iq-router"
+
 pipeline:
   output_dir: "01-local-worker/build/public"
   data_dir: "01-local-worker/build/data"
@@ -50,10 +62,15 @@ scraper:
       timeout_ms: 20000
 
 cloudflare:
-  pages_project: "example-matrix"
-  worker_name: "cps-edge-router"
+  pages_project: "condom-iq"
+  worker_name: "condom-iq-router"
   kv_namespace_binding: "APP_KV"
   r2_bucket_binding: "ASSETS_R2"
+  # Namespace IDs are not committed; set them in .env instead:
+  #   production -> CLOUDFLARE_KV_NAMESPACE_ID_PROD
+  #   test       -> CLOUDFLARE_KV_NAMESPACE_ID_DEV
+  # This variable, when set, overrides the mode-based pick.
+  kv_namespace_env: "CLOUDFLARE_KV_NAMESPACE_ID"
 
 compliance:
   require_affiliate_disclosure: true

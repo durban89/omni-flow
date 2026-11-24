@@ -20,6 +20,16 @@ pipeline:
   data_dir: "build/data"
 scraper:
   max_items_per_run: 1
+cloudflare:
+  pages_project: "condom-iq"
+  worker_name: "condom-iq-router"
+modes:
+  test:
+    cloudflare:
+      pages_project: "condom-iq-dev"
+  production:
+    cloudflare:
+      pages_project: "condom-iq"
 """
 
 RAW_ITEMS = {
@@ -124,7 +134,8 @@ def panel(tmp_path: Path):
         thread.join(timeout=5)
 
 
-def test_overview_reports_counts_and_settings(panel: str) -> None:
+def test_overview_reports_counts_and_settings(panel: str, monkeypatch) -> None:
+    monkeypatch.delenv("CLOUDFLARE_PAGES_PROJECT", raising=False)
     status, data = _get(f"{panel}/api/overview")
     assert status == 200
     assert data["settings"]["mode"] == "test"
@@ -133,6 +144,20 @@ def test_overview_reports_counts_and_settings(panel: str) -> None:
     assert data["collection"]["content"]["count"] == 1
     assert data["collection"]["content"]["status_counts"] == {"draft": 1}
     assert "scrape" in data["stages"]
+    assert "deploy-pages" in data["stages"]
+    assert "deploy-worker" in data["stages"]
+    assert data["settings"]["pages_project"] == "condom-iq-dev"
+    assert data["settings"]["worker_name"] == "condom-iq-router"
+
+
+def test_overview_follows_requested_mode(panel: str, monkeypatch) -> None:
+    monkeypatch.delenv("CLOUDFLARE_PAGES_PROJECT", raising=False)
+    _, test_mode = _get(f"{panel}/api/overview?mode=test")
+    _, prod_mode = _get(f"{panel}/api/overview?mode=production")
+    assert test_mode["settings"]["mode"] == "test"
+    assert test_mode["settings"]["pages_project"] == "condom-iq-dev"
+    assert prod_mode["settings"]["mode"] == "production"
+    assert prod_mode["settings"]["pages_project"] == "condom-iq"
 
 
 def test_raw_items_list_and_detail(panel: str) -> None:
@@ -185,6 +210,8 @@ def test_ui_is_served(panel: str) -> None:
         html = response.read().decode("utf-8")
     assert "local-worker" in html
     assert "data-stage=\"scrape\"" in html
+    assert 'data-stage="deploy-pages"' in html
+    assert 'data-stage="deploy-worker"' in html
     assert 'data-action="approve"' in html
 
 

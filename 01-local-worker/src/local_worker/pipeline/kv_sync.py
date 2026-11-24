@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,6 +15,14 @@ from local_worker.pipeline.affiliate_sync import resolve_offers_path
 logger = logging.getLogger("local_worker.kv_sync")
 
 VALID_OFFER_STATUSES = {"active", "paused", "disabled"}
+
+# Namespace IDs are secrets: they live in .env (gitignored), never in settings.
+DEFAULT_NAMESPACE_ENV = "CLOUDFLARE_KV_NAMESPACE_ID"
+# Mode -> env var holding that mode's namespace id.
+NAMESPACE_ENV_BY_MODE = {
+    "production": "CLOUDFLARE_KV_NAMESPACE_ID_PROD",
+    "test": "CLOUDFLARE_KV_NAMESPACE_ID_DEV",
+}
 
 
 def validate_offer(entry: dict[str, Any]) -> list[str]:
@@ -39,6 +46,28 @@ def validate_offer(entry: dict[str, Any]) -> list[str]:
         errors.append(f"invalid status: {status}; must be one of {VALID_OFFER_STATUSES}")
 
     return errors
+
+
+def resolve_namespace_id(settings: dict[str, Any]) -> tuple[str, str] | tuple[None, None]:
+    """Pick the KV namespace for the active mode.
+
+    `CLOUDFLARE_KV_NAMESPACE_ID` (name configurable via `cloudflare.kv_namespace_env`)
+    wins; otherwise production uses `_PROD` and test uses `_DEV`.
+    """
+    cf_conf = settings.get("cloudflare") if isinstance(settings.get("cloudflare"), dict) else {}
+    override_env = str(cf_conf.get("kv_namespace_env") or DEFAULT_NAMESPACE_ENV).strip()
+    override = os.environ.get(override_env, "").strip()
+    if override:
+        return override, override_env
+
+    app_conf = settings.get("app") if isinstance(settings.get("app"), dict) else {}
+    mode = str(app_conf.get("mode") or "production").strip().lower()
+    env_name = NAMESPACE_ENV_BY_MODE.get(mode)
+    if env_name:
+        value = os.environ.get(env_name, "").strip()
+        if value:
+            return value, env_name
+    return None, None
 
 
 def sync_affiliate_offers(
@@ -107,21 +136,31 @@ def sync_affiliate_offers(
     # Attempt Wrangler sync if available and not dry_run
     cf_conf = settings.get("cloudflare") if isinstance(settings.get("cloudflare"), dict) else {}
     kv_binding = str(cf_conf.get("kv_namespace_binding") or "APP_KV")
-    wrangler_bin = shutil.which("wrangler")
+    namespace_id, namespace_env = resolve_namespace_id(settings)
+    worker_dir = root / "02-cloudflare/worker"
 
-    if not dry_run and wrangler_bin and os.environ.get("CLOUDFLARE_API_TOKEN"):
+    if namespace_id:
+        logger.info("KV namespace: %s (from %s)", namespace_id, namespace_env)
+    else:
+        logger.warning(
+            "No KV namespace id configured; falling back to binding %s from wrangler.toml. "
+            "Set %s or %s in .env",
+            kv_binding,
+            " / ".join(NAMESPACE_ENV_BY_MODE.values()),
+            DEFAULT_NAMESPACE_ENV,
+        )
+
+    if not dry_run and worker_dir.exists():
+        # `npx` resolves the wrangler pinned in the worker package and uses the
+        # API token from .env or the existing `wrangler login` session.
+        cmd = ["npx", "wrangler", "kv", "bulk", "put", str(bulk_file), "--remote"]
+        if namespace_id:
+            cmd += ["--namespace-id", namespace_id]
+        else:
+            cmd += ["--binding", kv_binding]
         try:
-            logger.info("Syncing KV via Wrangler to binding %s", kv_binding)
-            cmd = [
-                wrangler_bin,
-                "kv",
-                "bulk",
-                "put",
-                str(bulk_file),
-                "--binding",
-                kv_binding,
-            ]
-            subprocess.run(cmd, check=True, cwd=root / "02-cloudflare/worker")
+            logger.info("Syncing KV via Wrangler: %s", " ".join(cmd))
+            subprocess.run(cmd, check=True, cwd=worker_dir)
             synced = True
             sync_method = "wrangler"
         except (subprocess.CalledProcessError, OSError) as exc:
@@ -130,6 +169,7 @@ def sync_affiliate_offers(
     return {
         "total_offers": len(kv_pairs),
         "bulk_file": str(bulk_file),
+        "namespace_id": namespace_id,
         "synced": synced,
         "method": sync_method,
     }

@@ -1,15 +1,32 @@
-name = "cps-edge-router"
+# Copy this file to wrangler.toml (gitignored) before deploying:
+#   cp wrangler.example.toml wrangler.toml
+name = "condom-iq-router"
 main = "src/index.ts"
 compatibility_date = "2026-01-01"
+
+# Keeps the workers.dev URL for testing; disable once the custom routes work.
 workers_dev = true
 
 [vars]
-ENVIRONMENT = "development"
+ENVIRONMENT = "production"
 
+[observability]
+enabled = true
+
+# Binding name must match cloudflare.kv_namespace_binding in config/settings.yaml.
+# This id is only a fallback: `deploy-worker` rewrites it per mode from
+# CLOUDFLARE_KV_NAMESPACE_ID_PROD / _DEV before calling wrangler.
+# Create the namespace with: npx wrangler kv namespace create APP_KV
 [[kv_namespaces]]
 binding = "APP_KV"
-id = "YOUR ID"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
+# Only expose the redirect and health endpoints, so Pages keeps serving
+# everything else. Replace example.com with the zone that hosts the site.
 # [[routes]]
 # pattern = "example.com/out/*"
+# zone_name = "example.com"
+#
+# [[routes]]
+# pattern = "example.com/healthz"
 # zone_name = "example.com"

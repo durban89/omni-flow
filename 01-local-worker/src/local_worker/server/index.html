@@ -146,6 +146,8 @@
       <button data-stage="validate">校验</button>
       <button data-stage="export">导出 Hugo</button>
       <button data-stage="build">构建站点</button>
+      <button data-stage="deploy-pages" data-confirm="pages">同步 Pages</button>
+      <button data-stage="deploy-worker" data-confirm="worker">部署 Worker</button>
       <button data-stage="sync-affiliate">同步联盟 (master→文件)</button>
       <button data-stage="sync-kv">推送 KV</button>
       <div class="spacer"></div>
@@ -272,6 +274,66 @@ function esc(value) {
   }[ch]));
 }
 
+const ANSI_FG = {
+  30: "#6b7280", 31: "#f87171", 32: "#4ade80", 33: "#fbbf24",
+  34: "#60a5fa", 35: "#c084fc", 36: "#22d3ee", 37: "#e5e7eb",
+  90: "#9ca3af", 91: "#fca5a5", 92: "#86efac", 93: "#fde68a",
+  94: "#93c5fd", 95: "#d8b4fe", 96: "#67e8f9", 97: "#ffffff",
+};
+const ANSI_BG = {
+  40: "#111827", 41: "#7f1d1d", 42: "#14532d", 43: "#78350f",
+  44: "#1e3a8a", 45: "#581c87", 46: "#164e63", 47: "#374151",
+  100: "#4b5563", 101: "#b91c1c", 102: "#15803d", 103: "#b45309",
+  104: "#1d4ed8", 105: "#7e22ce", 106: "#0e7490", 107: "#6b7280",
+};
+
+// Translate the ANSI colours CLIs emit when piped into styled spans.
+function ansiHtml(value) {
+  let fg = "", bg = "", bold = false, dim = false, italic = false, underline = false;
+  const style = () => [
+    fg && `color:${fg}`,
+    bg && `background-color:${bg}`,
+    bold && "font-weight:700",
+    dim && "opacity:.65",
+    italic && "font-style:italic",
+    underline && "text-decoration:underline",
+  ].filter(Boolean).join(";");
+
+  const out = [];
+  const re = /\x1b\[([0-9;]*)m|\x1b\[[0-9;?]*[A-Za-z]/g;
+  let last = 0;
+  let match;
+  while ((match = re.exec(value)) !== null) {
+    if (match.index > last) out.push([value.slice(last, match.index), style()]);
+    last = re.lastIndex;
+    if (match[1] === undefined) continue; // non-SGR escape: drop it
+    const codes = (match[1] || "0").split(";").map(Number);
+    for (let i = 0; i < codes.length; i++) {
+      const code = codes[i];
+      if (code === 0) { fg = ""; bg = ""; bold = dim = italic = underline = false; }
+      else if (code === 1) bold = true;
+      else if (code === 2) dim = true;
+      else if (code === 3) italic = true;
+      else if (code === 4) underline = true;
+      else if (code === 22) { bold = false; dim = false; }
+      else if (code === 23) italic = false;
+      else if (code === 24) underline = false;
+      else if (code === 39) fg = "";
+      else if (code === 49) bg = "";
+      else if (ANSI_FG[code]) fg = ANSI_FG[code];
+      else if (ANSI_BG[code]) bg = ANSI_BG[code];
+      else if (code === 38 || code === 48) {
+        // Extended colours (38;5;n / 38;2;r;g;b): skip their parameters.
+        i += codes[i + 1] === 5 ? 2 : codes[i + 1] === 2 ? 4 : 0;
+      }
+    }
+  }
+  if (last < value.length) out.push([value.slice(last), style()]);
+  return out
+    .map(([text, css]) => (css ? `<span style="${css}">${esc(text)}</span>` : esc(text)))
+    .join("");
+}
+
 function fmtTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -284,6 +346,8 @@ function renderChips() {
   const chips = [
     ["mode", s.mode],
     ["model", s.model],
+    ["pages", s.pages_project],
+    ["worker", s.worker_name],
     ["cap", `scrape ${s.scrape_cap ?? "-"} / content ${s.content_cap ?? "-"}`],
   ];
   $("chips").innerHTML = chips
@@ -325,7 +389,7 @@ function appendLogs(lines) {
   log.innerHTML = state.log
     .map((line) => {
       const cls = /\[ERROR\]/i.test(line.text) ? "err" : /\[WARNING\]/i.test(line.text) ? "warn" : "";
-      return `<span class="${cls}">${esc(line.text)}</span>`;
+      return `<span class="${cls}">${ansiHtml(line.text)}</span>`;
     })
     .join("\n");
   if ($("follow").checked) log.scrollTop = log.scrollHeight;
@@ -589,7 +653,8 @@ async function removeOffer(token) {
 }
 
 async function refreshOverview() {
-  state.overview = await api("/api/overview");
+  const mode = $("mode").value;
+  state.overview = await api(`/api/overview${mode ? `?mode=${encodeURIComponent(mode)}` : ""}`);
   renderChips();
   renderOverview();
   renderActions(state.overview.running);
@@ -609,7 +674,18 @@ async function refreshOverview() {
 
 document.addEventListener("click", (event) => {
   const stageBtn = event.target.closest("button[data-stage]");
-  if (stageBtn) { startJob(stageBtn.dataset.stage); return; }
+  if (stageBtn) {
+    if (stageBtn.dataset.confirm === "pages") {
+      const project = state.overview?.settings?.pages_project || "未配置的项目";
+      if (!window.confirm(`构建并发布到 Cloudflare Pages（${project}）？`)) return;
+    }
+    if (stageBtn.dataset.confirm === "worker") {
+      const worker = state.overview?.settings?.worker_name || "wrangler.toml 中的 Worker";
+      if (!window.confirm(`部署 Worker（${worker}）？会更新 /healthz 与 /out/* 路由逻辑。`)) return;
+    }
+    startJob(stageBtn.dataset.stage);
+    return;
+  }
   const tabBtn = event.target.closest("#tabs button");
   if (tabBtn) {
     state.tab = tabBtn.dataset.tab;
@@ -680,6 +756,11 @@ $("search").addEventListener("input", (event) => {
 $("refresh").addEventListener("click", async () => {
   await refreshOverview();
   await refreshLists();
+});
+// The mode select decides which Pages project / Worker KV a run targets, so the
+// header chips must follow it before the next deploy.
+$("mode").addEventListener("change", () => {
+  refreshOverview().catch((err) => appendLogs([{ ts: "", text: `[ERROR] ${err.message}` }]));
 });
 $("clear-log").addEventListener("click", () => {
   state.log = [];

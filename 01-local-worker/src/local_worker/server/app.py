@@ -31,6 +31,7 @@ from local_worker.pipeline.run import (
     _data_dir,
     _resolve,
     _section,
+    pages_project,
     run_export,
 )
 from local_worker.server import offers as offer_store
@@ -41,6 +42,8 @@ STAGES = (
     "validate",
     "export",
     "build",
+    "deploy-pages",
+    "deploy-worker",
     "sync-affiliate",
     "sync-kv",
 )
@@ -227,6 +230,8 @@ def _settings_snapshot(settings_path: Path, mode: str | None) -> dict[str, Any]:
         "content_cap": _section(settings, "pipeline").get("max_items_per_run"),
         "model": llm.get("model"),
         "llm_enabled": llm.get("enable"),
+        "pages_project": pages_project(settings),
+        "worker_name": _section(settings, "cloudflare").get("worker_name"),
     }
 
 
@@ -410,7 +415,8 @@ class ControlHandler(BaseHTTPRequestHandler):
             if route in {"/", "/index.html"}:
                 self._serve_ui()
             elif route == "/api/overview":
-                self._handle_overview()
+                mode = (query.get("mode") or [""])[0].strip() or None
+                self._handle_overview(mode)
             elif route == "/api/raw":
                 self._send_json(
                     {"items": _raw_items(self.server.project_root, self._settings_path())}
@@ -564,10 +570,10 @@ class ControlHandler(BaseHTTPRequestHandler):
         self._send_json(result)
 
     # ---------------------------------------------------------------- handlers
-    def _handle_overview(self) -> None:
+    def _handle_overview(self, mode: str | None = None) -> None:
         settings_path = self._settings_path()
         try:
-            settings = _settings_snapshot(settings_path, self._default_mode())
+            settings = _settings_snapshot(settings_path, mode or self._default_mode())
         except (ConfigError, OSError, ValueError) as exc:
             settings = {"error": f"{type(exc).__name__}: {exc}"}
 
