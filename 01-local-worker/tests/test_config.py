@@ -7,7 +7,13 @@ from local_worker.errors import ConfigError
 def test_resolve_llm_settings_merges_content_and_llm_sections() -> None:
     settings = {
         "content": {"model": "gpt-custom", "temperature": 0.6, "max_words": 900},
-        "llm": {"enable": True, "timeout_seconds": 12},
+        "llm": {
+            "enable": True,
+            "timeout_seconds": 12,
+            "fallback_base_url": "https://api.groq.com/openai/v1",
+            "fallback_model": "openai/gpt-oss-120b",
+            "fallback_api_key_env": "GROQ_API_KEY",
+        },
     }
 
     merged = resolve_llm_settings(settings)
@@ -17,6 +23,9 @@ def test_resolve_llm_settings_merges_content_and_llm_sections() -> None:
     assert merged["max_words"] == 900
     assert merged["timeout_seconds"] == 12
     assert merged["enable"] is True
+    assert merged["fallback_base_url"] == "https://api.groq.com/openai/v1"
+    assert merged["fallback_model"] == "openai/gpt-oss-120b"
+    assert merged["fallback_api_key_env"] == "GROQ_API_KEY"
 
 
 def test_resolve_llm_settings_llm_section_overrides_content() -> None:

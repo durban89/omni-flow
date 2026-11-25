@@ -110,7 +110,7 @@ LOCAL_WORKER_MODE=production python -m local_worker.pipeline.run scrape
 优先级：`--mode` > 环境变量 `LOCAL_WORKER_MODE` > `app.mode`，缺省为 `production`；写了 `modes:` 但模式名不存在会直接报错，不会静默回退。每条命令启动时会打印生效配置，例如：
 
 ```
-[config] mode=test | scrape cap=1 | content cap=1 | model=particle-ai/particle-1:free
+[config] mode=test | scrape cap=1 | content cap=1 | model=nvidia/nemotron-3.5-lightning:free
 ```
 
 注意：test 模式下 `scrape` 只保留 1 条**新**线索（会覆盖 `raw_items.json`），已生成过或已采集过的 URL、已用过的 seed query 都不再重复采集，适合每天验证一条新内容；累积多条请用 production 模式。
@@ -134,13 +134,15 @@ python -m local_worker.pipeline.run review --action reject --target example-buyi
 
 ## 内容生成配置
 
-`content:` 段（`model`、`temperature`、`max_words`、`timeout_seconds`）与 `llm:` 段会合并为一份 LLM 配置，`llm:` 中的同名键优先；`enable` 也接受 `enabled` 写法，缺省为关闭。只有 `llm.enable` 为真且环境中存在 `OPENAI_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` 之一时才会调用模型，否则使用模板生成。`category` 为 `health`、`medical` 或 `wellness` 的条目会走健康内容提示词，并只允许使用 master DB 中处于启用状态的联盟短代码。
+`content:` 段（`model`、`temperature`、`max_words`、`timeout_seconds`）与 `llm:` 段会合并为一份 LLM 配置，`llm:` 中的同名键优先；`enable` 也接受 `enabled` 写法，缺省为关闭。只有 `llm.enable` 为真且环境中存在 `OPENAI_API_KEY` / `GEMINI_API_KEY` / `LLM_API_KEY` 之一时才会调用模型，否则使用模板生成。
+
+**备用免费模型**：主 provider 返回错误（400/429/超时等）时，会自动用 `llm.fallback_model` 再试一次。默认是 Groq 的 OpenAI 兼容接口（`https://api.groq.com/openai/v1` + `openai/gpt-oss-120b`，免费额度 8K tokens/分钟、20 万/天），只需在 `.env` 填 `GROQ_API_KEY`（[免费申请](https://console.groq.com/keys)，不需要绑卡）。换 provider 时改 `fallback_base_url` / `fallback_model` / `fallback_api_key_env` 三个键即可；fallback 不发送 OpenRouter 独有的 `reasoning` 参数。`fallback_api_key_env` 设为空字符串表示不需要 key，可指向任意 OpenAI 兼容端点（例如无 key 的 `https://text.pollinations.ai/openai` + `openai`，或本机 `http://127.0.0.1:11434/v1` + Ollama 模型）。`category` 为 `health`、`medical` 或 `wellness` 的条目会走健康内容提示词，并只允许使用 master DB 中处于启用状态的联盟短代码。
 
 模型会同时返回 `title`，生成的条目优先用它作为标题（选题线索的标题常常只是站点名，例如「衛生福利部食品藥物管理署」）；去重 id 仍由源 URL + 线索标题派生，所以改标题不会造成重复生成。
 
 **语言**：站点的目标读者是海外英文市场（US / UK / CA / AU，兼及 HK / TW 的英文读者），因此 `app.default_locale` 为 `en-US`，提示词要求模型输出英文标题（≤ 65 字符、含主关键词、不出现站点名）、120–155 字符的英文 summary，以及固定的英文章节：健康类 `## The Issue` / `## Biological Background` / `## Recommended Solution`，导购类 `## Overview & Key Features` / `## In-Depth Analysis` / `## Pros & Cons` / `## Buying Advice`。
 
-**LLM 失败时的行为**：普通源（RSS / JSON / 动态页）会退回模板生成；`topic` 选题线索是纯 LLM 生成的，失败时**不写入** `content_items.json`（模板骨架是英文，写进去还会占住 id 导致永远不再重试），只记录 warning 并在下次运行 `content` 时自动重试。此时若没有新条目，`content_items.json` 不会被重写。
+**LLM 失败时的行为**：先尝试备用模型；两者都失败后，普通源（RSS / JSON / 动态页）会退回模板生成；`topic` 选题线索是纯 LLM 生成的，失败时**不写入** `content_items.json`（模板骨架是英文，写进去还会占住 id 导致永远不再重试），只记录 warning 并在下次运行 `content` 时自动重试。此时若没有新条目，`content_items.json` 不会被重写。
 
 ## SEO 输出
 

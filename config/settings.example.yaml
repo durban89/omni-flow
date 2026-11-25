@@ -84,3 +84,12 @@ llm:
   model: "gpt-4o-mini"
   temperature: 0.3
   max_words: 1200
+  # Optional free fallback, tried when the primary provider returns an error.
+  # Groq's OpenAI-compatible API has a free tier (no card); set GROQ_API_KEY.
+  fallback_base_url: "https://api.groq.com/openai/v1"
+  fallback_model: "openai/gpt-oss-120b"
+  fallback_api_key_env: "GROQ_API_KEY"
+  # Keyless alternatives when Groq is unreachable from your network:
+  #   fallback_base_url: "https://text.pollinations.ai/openai"
+  #   fallback_model: "openai"
+  #   fallback_api_key_env: ""

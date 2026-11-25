@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+import httpx
 import pytest
 
 from local_worker.content.generator import ContentGenerator
@@ -104,6 +105,86 @@ def test_non_topic_item_still_falls_back_when_llm_fails() -> None:
             _, body, _summary = generator.generate(raw)
 
     assert "## Overview: Office Buying Guide" in body
+
+
+def test_chat_completion_falls_back_to_groq(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("LLM_API_KEY", "primary-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    generator = ContentGenerator({"model": "bad-model:free"})
+    calls: list[dict] = []
+
+    def fake_post(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise httpx.HTTPError("400 Request path cannot be relayed")
+        return '{"title": "T", "summary": "S", "body_markdown": "B"}'
+
+    with patch.object(generator, "_post_completion", side_effect=fake_post):
+        content = generator._chat_completion("system", "user")
+
+    assert content.startswith("{")
+    assert calls[0]["base_url"] == generator.base_url
+    assert calls[1]["base_url"] == "https://api.groq.com/openai/v1"
+    assert calls[1]["model"] == "openai/gpt-oss-120b"
+    assert calls[1]["api_key"] == "groq-key"
+
+
+def test_chat_completion_falls_back_to_keyless_local_model(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("LLM_API_KEY", "primary-key")
+    generator = ContentGenerator(
+        {
+            "model": "bad-model:free",
+            "fallback_base_url": "http://127.0.0.1:11434/v1",
+            "fallback_model": "deepseek-r1:8b",
+            "fallback_api_key_env": "",
+        }
+    )
+    calls: list[dict] = []
+
+    def fake_post(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise httpx.HTTPError("400 Request path cannot be relayed")
+        return '{"title": "T", "summary": "S", "body_markdown": "B"}'
+
+    with patch.object(generator, "_post_completion", side_effect=fake_post):
+        generator._chat_completion("system", "user")
+
+    assert calls[1]["base_url"] == "http://127.0.0.1:11434/v1"
+    assert calls[1]["api_key"] == ""
+
+
+def test_chat_completion_reraises_without_fallback_key(monkeypatch) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("GEMINI_API_KEY", "")
+    monkeypatch.setenv("LLM_API_KEY", "primary-key")
+    monkeypatch.setenv("GROQ_API_KEY", "")
+    generator = ContentGenerator({"model": "bad-model:free"})
+
+    with (
+        patch.object(
+            generator,
+            "_post_completion",
+            side_effect=httpx.HTTPError("400 Request path cannot be relayed"),
+        ) as post,
+        pytest.raises(httpx.HTTPError),
+    ):
+        generator._chat_completion("system", "user")
+
+    assert post.call_count == 1
+
+
+def test_parse_llm_json_strips_markdown_fence() -> None:
+    generator = ContentGenerator({})
+    title, body, summary = generator._parse_llm_json(
+        '```json\n{"title": "T", "summary": "S", "body_markdown": "B"}\n```'
+    )
+
+    assert (title, body, summary) == ("T", "B", "S")
 
 
 def test_affiliate_tokens_loaded_once_per_generator(tmp_path: Path) -> None:

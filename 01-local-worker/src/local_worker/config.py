@@ -23,6 +23,9 @@ _LLM_KEYS = (
     "timeout_seconds",
     "reasoning_max_tokens",
     "max_output_tokens",
+    "fallback_base_url",
+    "fallback_model",
+    "fallback_api_key_env",
 )
 
 

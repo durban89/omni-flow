@@ -37,15 +37,42 @@ class ContentGenerator:
         # OpenRouter reasoning models can spend the whole output budget thinking,
         # leaving `content` empty with finish_reason=length. Cap reasoning tokens.
         self.reasoning_max_tokens = int(self.config.get("reasoning_max_tokens") or 0)
-        self.api_key = (
-            os.environ.get("OPENAI_API_KEY")
-            or os.environ.get("GEMINI_API_KEY")
-            or os.environ.get("LLM_API_KEY")
-            or ""
-        )
         self.base_url = str(
             self.config.get("base_url") or "https://api.openai.com/v1"
         ).rstrip("/")
+        self.api_key = (
+            os.environ.get("OPENAI_API_KEY")
+            or os.environ.get("LLM_API_KEY")
+            or ""
+        )
+        # Gemini is only a primary key when Gemini is actually the primary base.
+        if "generativelanguage" in self.base_url:
+            self.api_key = os.environ.get("GEMINI_API_KEY") or self.api_key
+        # Optional free fallback used only when the primary provider fails.
+        # Groq is OpenAI-compatible and has a no-card free tier.
+        self.fallback_base_url = str(
+            self.config.get("fallback_base_url")
+            or "https://api.groq.com/openai/v1"
+        ).rstrip("/")
+        self.fallback_model = str(
+            self.config.get("fallback_model") or "openai/gpt-oss-120b"
+        )
+        # An empty env name means the fallback needs no key (e.g. local Ollama).
+        fallback_env = self.config.get("fallback_api_key_env", "GROQ_API_KEY")
+        self.fallback_api_key_env = "" if fallback_env is None else str(fallback_env)
+        self.fallback_api_key = (
+            os.environ.get(self.fallback_api_key_env, "")
+            if self.fallback_api_key_env
+            else ""
+        )
+        self.fallback_enabled = bool(
+            self.fallback_base_url and self.fallback_model
+        ) and (not self.fallback_api_key_env or bool(self.fallback_api_key))
+        if (
+            self.fallback_base_url == self.base_url
+            and self.fallback_model == self.model
+        ):
+            self.fallback_enabled = False
         self._use_health_mode = False
         self._master_db_path = Path("master-affiliate-db.json")
         self.valid_tokens: dict[str, dict[str, Any]] = {}
@@ -129,12 +156,53 @@ class ContentGenerator:
         return self._template_generate(raw)
 
     def _chat_completion(self, system_prompt: str, user_prompt: str) -> str:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        try:
+            return self._post_completion(
+                base_url=self.base_url,
+                model=self.model,
+                api_key=self.api_key,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                allow_reasoning=True,
+            )
+        except (httpx.HTTPError, ValueError) as exc:
+            if not self.fallback_enabled:
+                raise
+            logger.warning(
+                "primary LLM %s failed (%s); falling back to %s",
+                self.model,
+                exc,
+                self.fallback_model,
+            )
+        return self._post_completion(
+            base_url=self.fallback_base_url,
+            model=self.fallback_model,
+            api_key=self.fallback_api_key,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            allow_reasoning=False,
+        )
+
+    def _post_completion(
+        self,
+        *,
+        base_url: str,
+        model: str,
+        api_key: str,
+        system_prompt: str,
+        user_prompt: str,
+        allow_reasoning: bool,
+    ) -> str:
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        # Groq's free tier caps tokens per minute (8K), so a 16K completion cap
+        # would be rejected; a 1200-word article fits comfortably in 6K.
+        max_tokens = (
+            self.max_output_tokens if allow_reasoning else min(self.max_output_tokens, 6000)
+        )
         payload = {
-            "model": self.model,
+            "model": model,
             "temperature": self.temperature,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -143,16 +211,29 @@ class ContentGenerator:
             "response_format": {"type": "json_object"},
             # This endpoint always spends part of the budget on reasoning and
             # rejects attempts to disable it, so leave generous headroom.
-            "max_tokens": self.max_output_tokens,
+            "max_tokens": max_tokens,
         }
-        if self.reasoning_max_tokens and "openrouter.ai" in self.base_url:
+        if (
+            allow_reasoning
+            and self.reasoning_max_tokens
+            and "openrouter.ai" in base_url
+        ):
             payload["reasoning"] = {"max_tokens": self.reasoning_max_tokens}
         with httpx.Client(timeout=self.timeout_seconds) as client:
             resp = client.post(
-                f"{self.base_url}/chat/completions",
+                f"{base_url}/chat/completions",
                 headers=headers,
                 json=payload,
             )
+            # `is True` (not truthiness) keeps test doubles from taking this path.
+            if resp.is_error is True:
+                # Surface the provider's message; raise_for_status() alone hides
+                # actionable 400/402 bodies behind a generic status line.
+                logger.warning(
+                    "LLM endpoint returned %s: %s",
+                    resp.status_code,
+                    resp.text[:500],
+                )
             resp.raise_for_status()
             data = resp.json()
         content = data["choices"][0]["message"]["content"]
@@ -161,8 +242,13 @@ class ContentGenerator:
         return content
 
     def _parse_llm_json(self, content: str) -> tuple[str, str, str]:
+        text = content.strip()
+        # Some providers wrap JSON in a markdown fence despite JSON mode.
+        if text.startswith("```"):
+            text = re.sub(r"^```[A-Za-z0-9_-]*\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
         # Models sometimes emit raw newlines inside string values.
-        parsed = json.loads(content, strict=False)
+        parsed = json.loads(text, strict=False)
         if not isinstance(parsed, dict):
             raise TypeError("LLM JSON root must be an object")
         body = str(parsed.get("body_markdown") or "").strip()
