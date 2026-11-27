@@ -133,6 +133,8 @@ Worker 只处理 `/out/*` 和 `/healthz`，不要绑定 `/*`，否则会拦截 P
 
 ## KV 数据同步
 
+从建 namespace、写 `.env`、配置绑定到验证跳转的完整流程见 [KV 初始化与同步](../docs/kv-setup.md)。以下是日常同步要点。
+
 `python -m local_worker.pipeline.run sync-kv` 从 `config/affiliate-offers.json` 生成 `01-local-worker/build/data/kv_bulk.json`，键名为 `offer:<slug>`，其中 `<slug>` 取自 `masked_path` 的最后一段（`/out/okamoto-001` → `offer:okamoto-001`），与 Worker 的读取规则一致。
 
 默认会自动执行 bulk put（在 `02-cloudflare/worker` 下用 `npx wrangler`，认证走 `.env` 的 `CLOUDFLARE_API_TOKEN` 或 `wrangler login` 会话）：

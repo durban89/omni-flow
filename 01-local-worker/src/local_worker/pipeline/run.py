@@ -315,12 +315,20 @@ def run_scrape(root: Path, settings: dict[str, Any]) -> Path:
 
     if exclude_urls or exclude_queries:
         logger.info(
-            "[scrape] %d known URL(s) and %d used query/queries excluded, "
+            "[scrape] %d known URL(s) and %d used query/queries deprioritised, "
             "%d repeated result(s) dropped, %d new item(s) kept",
             len(exclude_urls),
             len(exclude_queries),
             repeated_count,
             len(items),
+        )
+
+    if not items and sources:
+        logger.warning(
+            "[scrape] 0 new item(s) from %d enabled source(s): every lead was already "
+            "known or the source returned no results. Widen scraper.sources queries "
+            "before the next run.",
+            len(sources),
         )
 
     if items:

@@ -61,6 +61,31 @@ scraper:
       default_tags: ["dynamic", "javascript"]
       timeout_ms: 20000
 
+    # 4. 选题发现 (Search API)：只保留标题 / URL / 短摘要作为选题线索，正文由
+    #    content 阶段从零撰写，不转载第三方内容。需要 .env 里的 EXA_API_KEY。
+    #    queries 就是选题池：一个 query 视作一个选题，按主题分组扩充（尺寸、
+    #    价格、材质、使用场景……），尽量覆盖不同搜索意图，避免互相抢词。
+    #    用过的 query 会让位给没用过的；全部用过时才会回查旧 query，重复内容靠
+    #    URL 与标题相似度拦截。max_attempts 不小于 query 数，避免某条 query 长期
+    #    没有新线索时把后面的选题饿死。
+    - id: topic_discovery
+      type: topic_search
+      enabled: false
+      provider: exa
+      api_key_env: "EXA_API_KEY"
+      queries:
+        - "how to compare product specifications before buying"
+        - "common mistakes when choosing the right product size"
+        - "cheap vs expensive product materials comparison"
+        - "how to check warranty and return policy"
+      num_results: 8
+      max_items: 20
+      # 同一 query 取得越多结果，越容易写成几篇几乎一样的文章；默认只取 1 条。
+      max_items_per_query: 1
+      max_attempts: 30
+      default_category: "guides"
+      default_tags: ["topic", "guides"]
+
 cloudflare:
   pages_project: "condom-iq"
   worker_name: "condom-iq-router"

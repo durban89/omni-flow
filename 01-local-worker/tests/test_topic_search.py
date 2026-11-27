@@ -177,6 +177,43 @@ def test_topic_search_skips_used_queries(monkeypatch: pytest.MonkeyPatch) -> Non
     assert json.loads(requests[0].content)["query"] == "fresh query"
 
 
+def test_topic_search_retries_used_queries_for_new_leads(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An exhausted query list must still be searched instead of returning nothing."""
+    monkeypatch.setenv("EXA_API_KEY", "test-key")
+    requests: list[httpx.Request] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        query = json.loads(request.content)["query"]
+        return httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "title": f"A new angle on {query}",
+                        "url": f"https://news.example.com/{quote(query)}/new",
+                        "text": "A lead that was not collected before.",
+                    }
+                ]
+            },
+        )
+
+    source = TopicSearchSource(
+        "topic_health_en",
+        {"queries": ["used query"], "max_items": 5},
+        SourceContext(
+            client=HttpClient(user_agent="TestBot/1.0", transport=httpx.MockTransport(handle), delay_ms=0),
+            exclude_queries=frozenset({"used query"}),
+            max_new_items=1,
+        ),
+    )
+
+    items = source.fetch()
+
+    assert [item.keywords for item in items] == [("used query",)]
+    assert len(requests) == 1
+
+
 def test_topic_search_limits_results_per_query(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EXA_API_KEY", "test-key")
 

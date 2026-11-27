@@ -98,12 +98,24 @@ class TopicSearchSource:
         used_queries = {_query_key(query) for query in self.context.exclude_queries}
         known_titles = list(self.context.exclude_titles)
 
+        # A query that already produced an article is only deprioritised, not
+        # dropped: search engines return new results over time, and blocking the
+        # query forever leaves a small query list with nothing to collect. Fresh
+        # queries are searched first; used ones are retried afterwards, with URL
+        # and title dedupe still deciding what counts as a new lead.
+        fresh_queries = [query for query in queries if _query_key(query) not in used_queries]
+        retry_queries = [query for query in queries if _query_key(query) in used_queries]
+        if not fresh_queries and retry_queries:
+            logger.info(
+                "[topic_search] %s: all %d configured queries were used before; "
+                "retrying them for new leads",
+                self.source_id,
+                len(retry_queries),
+            )
+
         items: list[RawItem] = []
         seen_urls: set[str] = set()
-        for query in queries:
-            if _query_key(query) in used_queries:
-                logger.info("[topic_search] %s: skip used query %r", self.source_id, query)
-                continue
+        for query in [*fresh_queries, *retry_queries]:
             if attempts >= max_attempts:
                 break
             attempts += 1
