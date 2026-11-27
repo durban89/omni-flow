@@ -4,13 +4,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -e "01-local-worker[dev]"
+if ! command -v uv >/dev/null 2>&1; then
+  printf 'uv is required. Install it from https://docs.astral.sh/uv/getting-started/installation/\n' >&2
+  exit 1
+fi
+
+uv sync
 
 cd "$ROOT/02-cloudflare/worker"
 npm install
 
 printf 'Bootstrap complete.\n'
-printf 'Optional: python -m playwright install chromium\n'
+printf 'Optional: uv run python -m playwright install chromium\n'

@@ -37,7 +37,7 @@ class PlaywrightSource:
         except ImportError as exc:
             raise ScrapeError(
                 f"{self.source_id}: Playwright is not installed. "
-                "Install with: pip install playwright && playwright install chromium"
+                "Install with: uv sync && uv run python -m playwright install chromium"
             ) from exc
 
         timeout_ms = int(self.config.get("timeout_ms") or 30000)

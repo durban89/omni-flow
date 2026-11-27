@@ -65,6 +65,8 @@
 ├── .env.example
 ├── .gitignore
 ├── Makefile
+├── pyproject.toml
+├── uv.lock
 ├── config/
 │   ├── settings.example.yaml
 │   ├── curated-input.example.json
@@ -111,6 +113,7 @@
 ## 4. 环境要求
 
 - Python 3.11+
+- [uv](https://docs.astral.sh/uv/)（Python 依赖与虚拟环境管理）
 - Node.js 20+
 - Hugo Extended 0.120+
 - Wrangler 4+
@@ -129,18 +132,28 @@ python -m local_worker.pipeline.run sync-affiliate
 make check
 ```
 
-`bootstrap.sh` 会创建 `.venv`、安装 Python 依赖、安装 Worker 依赖。Playwright 浏览器需要额外执行 `python -m playwright install chromium`。
+Python 依赖由 uv 管理：根目录 `pyproject.toml` 声明 workspace 与开发依赖，`01-local-worker/pyproject.toml` 声明运行时依赖，`uv.lock` 锁定精确版本（提交到版本库）。`bootstrap.sh` 会执行 `uv sync` 创建/更新 `.venv` 并安装 Worker 依赖。Playwright 浏览器需要额外执行 `uv run python -m playwright install chromium`。
+
+日常用法：
+
+```bash
+uv sync                 # 按 uv.lock 安装/同步依赖
+uv run pytest tests     # 在项目虚拟环境中运行命令
+uv add --package local-worker httpx   # 为 Layer 1 新增运行时依赖
+uv lock --upgrade       # 升级锁定的依赖版本
+```
 
 ## 6. 常用命令
 
 | 命令 | 说明 |
 | --- | --- |
-| `make setup` | 创建虚拟环境并安装依赖 |
+| `make setup` | `uv sync` 创建/更新虚拟环境并安装依赖 |
+| `make lock` | 重新解析并更新 `uv.lock` |
 | `make pipeline` | 执行 Layer 1 流水线并构建静态站 |
 | `make build` | 仅执行 Hugo 构建 |
 | `make dev-worker` | 本地启动 Worker 调试 |
 | `make deploy` | 构建并部署 Pages + Worker |
-| `make check` | Ruff + Pytest + TypeScript 类型检查 |
+| `make check` | Ruff + Pytest（经 `uv run`）+ TypeScript 类型检查 |
 | `make clean` | 清理构建产物 |
 
 `make pipeline` 默认读取 `config/curated-input.example.json`，跑通采集 -> 规范化 -> 校验 -> Hugo 构建。生成的内容默认是 `draft`，不会进入公开索引。

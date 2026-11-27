@@ -219,6 +219,8 @@ scraper:
 ## 测试与代码规范
 
 ```bash
-pytest 01-local-worker/tests
-ruff check 01-local-worker
+uv run pytest 01-local-worker/tests
+uv run ruff check 01-local-worker
 ```
+
+依赖由仓库根目录的 uv workspace 统一管理（`uv sync` 安装，`uv.lock` 锁定版本）。只在该目录内运行 pytest 时，先 `cd` 到仓库根目录或用 `uv run --project .. pytest tests`。

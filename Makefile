@@ -1,14 +1,15 @@
 SHELL := /usr/bin/env bash
-PYTHON ?= python3
+UV ?= uv
 VENV := .venv
 
-.PHONY: setup pipeline build deploy dev-worker check clean
+.PHONY: setup lock pipeline build deploy dev-worker check clean
 
 setup:
-	$(PYTHON) -m venv $(VENV)
-	$(VENV)/bin/python -m pip install --upgrade pip
-	$(VENV)/bin/python -m pip install -e "./01-local-worker[dev]"
+	$(UV) sync
 	cd 02-cloudflare/worker && npm install
+
+lock:
+	$(UV) lock
 
 pipeline:
 	./scripts/pipeline.sh
@@ -23,8 +24,8 @@ dev-worker:
 	cd 02-cloudflare/worker && npm run dev
 
 check:
-	$(VENV)/bin/ruff check 01-local-worker
-	$(VENV)/bin/pytest 01-local-worker
+	$(UV) run ruff check 01-local-worker
+	$(UV) run pytest 01-local-worker
 	cd 02-cloudflare/worker && npm run typecheck
 
 clean:

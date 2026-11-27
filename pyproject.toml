@@ -1,0 +1,18 @@
+[project]
+name = "omniflow"
+version = "0.0.0"
+description = "OmniFlow monorepo workspace root (Python dependencies via uv)"
+requires-python = ">=3.11"
+dependencies = ["local-worker"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["01-local-worker"]
+
+[tool.uv.sources]
+local-worker = { workspace = true }
+
+[dependency-groups]
+dev = ["local-worker[dev]"]
